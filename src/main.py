@@ -237,6 +237,7 @@ async def main():
                 )
                 
                 if check.is_same_job and check.confidence >= 70:
+                    canonical_hash = fuzzy_cand.get("Content_Hash") or job_hash
                     print(f"    ✅ [Gemini: DUPLICATO CONFERMATO ({check.confidence}%)] {check.reason}. Copia esito precedente a 0 token di valutazione completa!")
                     writer.writerow({
                         "Data": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -246,7 +247,7 @@ async def main():
                         "Match": fuzzy_cand.get("Match", "NO"),
                         "Rejection_Tag": fuzzy_cand.get("Rejection_Tag", ""),
                         "Stato_UI": "NON_LETTO",
-                        "Content_Hash": job_hash,
+                        "Content_Hash": canonical_hash,
                         "Reasoning": f"[DUPLICATO CROSS-PLATFORM CONFERMATO DA GEMINI] {fuzzy_cand.get('Reasoning', '')}",
                         "URL": job["url"]
                     })

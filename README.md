@@ -325,11 +325,16 @@ Ogni annuncio analizzato viene registrato e memorizzato in tempo reale in [histo
 - **Sincronizzazione Bidirezionale con il Backend**: Ogni modifica apportata sulla UI si riflette istantaneamente nel file [data/learned_agencies.json](file:///c:/Users/borgi/projects/AI-Job-Finder/data/learned_agencies.json), garantendo che i successivi cicli di scraping recepiano immediatamente le nuove direttive.
 
 ### 2. Inbox Opportunità & Gestione Stato (`Stato_UI`)
-- **Feed delle Candidature Valide (`is_match = True`)**: Visualizzazione a card delle posizioni promosse da Gemini con indicazione di Titolo, Azienda, Piattaforma (LinkedIn / Indeed), Fit Score %, e la scheda dei contatti dell'Hiring Manager/Recruiter dedotta da LangGraph.
+- **Feed delle Candidature Valide (`is_match = True`)**: Visualizzazione a card delle posizioni promosse da Gemini con indicazione di Titolo, Azienda, Piattaforme rilevate, e la scheda dei contatti dell'Hiring Manager/Recruiter dedotta da LangGraph.
+- **Aggregazione Intelligente Duplicati & Multi-Platform Badging**:
+  - In caso di annuncio duplicato confermato (tramite impronta SHA-256 su stessa piattaforma o verifica AI cross-platform tra LinkedIn e Indeed), la UI **mostra una sola card aggregata**, eliminando duplicati visivi e ridondanze.
+  - La card evidenzia la presenza multi-fonte tramite badge dinamici (es. `[Fonti: LinkedIn 🔵 | Indeed 🟠]` o `[Ripubblicato 2x su LinkedIn]`).
+  - Vengono esposti **pulsanti diretti a entrambi gli annunci originali** (es. `[🔗 Candidati su LinkedIn]` e `[🔗 Candidati su Indeed]`), consentendo alla candidata di scegliere la via di candidatura più comoda o consultare entrambe le fonti.
+  - L'aggiornamento di stato (`Segna come Letto` o `Scarta dalla UI`) agisce simultaneamente su tutti i record collegati dallo stesso `Content_Hash` in [history.csv](file:///c:/Users/borgi/projects/AI-Job-Finder/history.csv).
 - **Azioni Interattive**:
   - `Segna come Letto`: aggiorna lo `Stato_UI` da `NON_LETTO` a `LETTO` in [history.csv](file:///c:/Users/borgi/projects/AI-Job-Finder/history.csv).
   - `Scarta dalla UI`: archivia l'annuncio impostando `Stato_UI = SCARTATO`.
-  - `Candidati`: link diretto all'annuncio originale per l'invio della candidatura.
+  - `Candidati`: link diretti agli annunci originali per l'invio della candidatura.
 
 ### 3. Analytics e Distribuzione di Mercato
 - Visualizzazione interattiva dei dati registrati in [history.csv](file:///c:/Users/borgi/projects/AI-Job-Finder/history.csv): volume annunci LinkedIn vs Indeed, percentuali di scarto per categoria (`RejectionReason`) e mappa delle opportunità su Bari/Puglia vs Full Remote.
