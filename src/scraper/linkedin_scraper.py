@@ -187,12 +187,13 @@ class LinkedInScraper:
             if not job_cards:
                 break # Nessun annuncio in questa pagina, abbiamo finito
                 
-            print(f"[+] Pagina {start//25 + 1}: Trovate {len(job_cards)} offerte.")
+            print(f"[+] [LinkedIn] Pagina {start//25 + 1}: Trovate {len(job_cards)} offerte.", flush=True)
             
             for card in job_cards:
                 job_data = await self._parse_job_card(card)
                 if job_data and job_data["url"]:
                     if job_data["url"] in seen_urls:
+                        print(f"    [LinkedIn] Salto già presente: {job_data['title']} @ {job_data['company']}", flush=True)
                         continue # Salta duplicati prima di caricare la pagina pesante
                     
                     seen_urls.add(job_data["url"])
@@ -200,12 +201,13 @@ class LinkedInScraper:
                     desc = await self.scrape_job_description(job_data["url"])
                     job_data["description"] = desc
                     jobs_found.append(job_data)
-                    await page.wait_for_timeout(1000)
+                    print(f"    [LinkedIn] Estratto: {job_data['title']} @ {job_data['company']} ({len(desc)} car)", flush=True)
+                    await page.wait_for_timeout(600)
                     
                     if len(jobs_found) >= max_results:
                         break
                         
-            if len(jobs_found) >= max_results:
+            if len(jobs_found) >= max_results or len(job_cards) < 25:
                 break
         
         return jobs_found

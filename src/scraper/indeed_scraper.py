@@ -81,8 +81,16 @@ class IndeedScraper:
         context, page = await self._create_context()
         
         try:
-            # Paginazione su Indeed: ogni pagina ha circa 10-15 offerte (start incrementa di 10)
+            # Paginazione su Indeed (start=0, 10, 20...)
             for start in range(0, max_results, 10):
+                if start > 0:
+                    try:
+                        await page.close()
+                    except Exception:
+                        pass
+                    page = await context.new_page()
+                    await asyncio.sleep(1.5)
+
                 search_url = self.base_url.format(
                     keywords=keywords.replace(" ", "+"),
                     location=location.replace(" ", "+"),
@@ -94,111 +102,106 @@ class IndeedScraper:
                     await page.wait_for_timeout(2000)
                     await self._handle_popups(page)
                 except Exception as e:
-                    print(f"[-] Errore caricamento pagina Indeed ({search_url}): {e}")
+                    print(f"[-] Errore caricamento pagina Indeed ({search_url}): {e}", flush=True)
                     break
 
                 page_title = await page.title()
-                if "security check" in page_title.lower():
-                    print(f"[-] Security Check rilevato su Indeed per '{keywords}', ricreo contesto pulito...")
-                    await context.close()
-                    context, page = await self._create_context()
-                    await page.goto(search_url, wait_until="domcontentloaded", timeout=20000)
-                    await page.wait_for_timeout(2000)
-                    await self._handle_popups(page)
+                if "security check" in page_title.lower() or "just a moment" in page_title.lower():
+                    print(f"[-] Security Check rilevato su Indeed per '{keywords}' (start={start}). Attendo 3s...", flush=True)
+                    await page.wait_for_timeout(3000)
+                    page_title = await page.title()
+                    if "security check" in page_title.lower() or "just a moment" in page_title.lower():
+                        print(f"[-] Pagina Indeed bloccata da verifica, proseguo.", flush=True)
+                        break
 
-                card_locators = page.locator("div.cardOutline")
-                count = await card_locators.count()
+                # Estraiamo l'intero DOM della pagina in BeautifulSoup istantaneamente
+                html = await page.content()
+                soup = BeautifulSoup(html, "html.parser")
+                cards_soup = soup.find_all("div", class_=lambda c: c and "cardOutline" in c)
                 
+                if not cards_soup:
+                    cards_soup = soup.find_all("div", class_=lambda c: c and "job_seen_beacon" in c)
+                
+                count = len(cards_soup)
                 if count == 0:
-                    # Nessun annuncio trovato per questa pagina, abbiamo finito
                     break
                     
-                print(f"[+] Indeed - Pagina {start // 10 + 1}: Trovate {count} offerte.")
+                print(f"[+] Indeed - Pagina {start // 10 + 1}: Trovate {count} offerte.", flush=True)
                 
-                for i in range(count):
+                for i, c_soup in enumerate(cards_soup):
                     try:
-                        await self._handle_popups(page)
-                        card = card_locators.nth(i)
-                        
-                        # Estrazione dati rapidi dalla card HTML
-                        card_html = await card.inner_html()
-                        soup = BeautifulSoup(card_html, "html.parser")
-                        
                         # Titolo
-                        title_el = soup.find("h2") or soup.find("a", class_=lambda c: c and "jcs-JobTitle" in c)
+                        title_el = c_soup.find("h2") or c_soup.find("a", class_=lambda c: c and "jcs-JobTitle" in c)
                         title = title_el.text.strip().split("\n")[0] if title_el else "Titolo Sconosciuto"
                         
-                        # Link / URL Canonico
-                        jk_tag = soup.find(lambda tag: tag.has_attr("data-jk"))
-                        if jk_tag and jk_tag.get("data-jk"):
-                            job_url = f"https://it.indeed.com/viewjob?jk={jk_tag['data-jk']}"
-                        else:
-                            link_el = soup.find("a", href=True)
-                            job_url = ""
-                            if link_el and link_el.get("href"):
-                                href = link_el["href"]
-                                if "jk=" in href:
-                                    jk_val = href.split("jk=")[1].split("&")[0]
-                                    job_url = f"https://it.indeed.com/viewjob?jk={jk_val}"
-                                elif href.startswith("/"):
-                                    job_url = "https://it.indeed.com" + href.split("?")[0]
-                                else:
-                                    job_url = href.split("?")[0]
+                        # Link & JK
+                        title_link = c_soup.find("a", class_=lambda c: c and "jcs-JobTitle" in c) or c_soup.find("a", href=True)
+                        href = title_link.get("href", "") if title_link else ""
+                        
+                        jk = ""
+                        jk_tag = c_soup.find(lambda tag: tag.has_attr("data-jk"))
+                        if jk_tag:
+                            jk = jk_tag["data-jk"]
+                        elif "jk=" in href:
+                            jk = href.split("jk=")[1].split("&")[0]
                             
+                        job_url = f"https://it.indeed.com/viewjob?jk={jk}" if jk else ("https://it.indeed.com" + href.split("?")[0] if href.startswith("/") else href)
+                        
                         # Azienda
-                        comp_el = (soup.find("span", {"data-testid": "company-name"}) or 
-                                   soup.find("span", class_=lambda c: c and "company" in c))
+                        comp_el = (c_soup.find("span", {"data-testid": "company-name"}) or 
+                                   c_soup.find("span", class_=lambda c: c and "company" in c))
                         company = comp_el.text.strip().split("\n")[0] if comp_el else "Azienda Sconosciuta"
                         
                         # Sede / Località
-                        loc_el = (soup.find("div", {"data-testid": "text-location"}) or 
-                                  soup.find("div", class_=lambda c: c and "location" in c))
+                        loc_el = (c_soup.find("div", {"data-testid": "text-location"}) or 
+                                  c_soup.find("div", class_=lambda c: c and "location" in c))
                         loc = loc_el.text.strip() if loc_el else ""
                         if loc:
                             company = f"{company} ({loc})"
                             
-                        # Deduplicazione preventiva
+                        # Deduplicazione preventiva istantanea a zero latenza
                         if job_url in seen_urls:
+                            print(f"    [Indeed] Salto già esaminato: {title} @ {company}", flush=True)
                             continue
                         seen_urls.add(job_url)
-                            
-                        # Chiudi eventuali dialog o popup premendo Escape
-                        await page.keyboard.press("Escape")
-                        await page.wait_for_timeout(100)
                         
-                        # Clicchiamo per attivare il pannello laterale evitando link sponsorizzati che deviano la pagina
-                        title_link = card.locator("h2.jobTitle a, a.jcs-JobTitle, a[id*='job_']").first
-                        is_ad = False
-                        if await title_link.count() > 0:
-                            href = await title_link.get_attribute("href") or ""
-                            if "/pagead/" in href:
-                                is_ad = True
-                                
                         desc_text = ""
-                        if not is_ad and await title_link.count() > 0:
-                            link_el = await title_link.element_handle()
-                            await page.evaluate("(el) => el.click()", link_el)
-                            await page.wait_for_timeout(800)
-                            
-                            # Se la pagina ha navigato via, ripristiniamo la vista di ricerca
-                            if not page.url.startswith("https://it.indeed.com/jobs"):
-                                await page.go_back(wait_until="domcontentloaded")
-                                await page.wait_for_timeout(1000)
-                            else:
-                                pane = page.locator("#jobsearch-ViewjobPaneWrapper")
-                                if await pane.count() > 0:
-                                    pane_html = await pane.inner_html()
-                                    pane_soup = BeautifulSoup(pane_html, "html.parser")
-                                    desc_div = pane_soup.find("div", id="jobDescriptionText") or pane_soup.find(class_=lambda c: c and "jobsearch-jobDescriptionText" in c)
-                                    if desc_div:
-                                        desc_text = desc_div.get_text(separator="\n", strip=True)
+                        if jk:
+                            title_btn = page.locator(f"[data-jk='{jk}'] h2, [data-jk='{jk}'] a, a[data-jk='{jk}']").first
+                            if await title_btn.count() > 0:
+                                try:
+                                    await title_btn.evaluate("""
+                                        (el) => {
+                                            const evt = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
+                                            el.dispatchEvent(evt);
+                                        }
+                                    """)
+                                    try:
+                                        await page.wait_for_selector("#jobsearch-ViewjobPaneWrapper", timeout=800)
+                                    except Exception:
+                                        pass
+                                        
+                                    if not page.url.startswith("https://it.indeed.com/jobs"):
+                                        await page.go_back(wait_until="domcontentloaded")
+                                        await page.wait_for_timeout(400)
                                     else:
-                                        desc_text = pane_soup.get_text(separator="\n", strip=True)
-                        else:
-                            # Per annunci sponsorizzati/esterni, estraiamo lo snippet descrittivo dalla card senza deviare la navigazione
-                            snippet = soup.find("div", class_=lambda c: c and ("job-snippet" in c or "underShelfFooter" in c))
-                            desc_text = snippet.get_text(separator="\n", strip=True) if snippet else f"{title} presso {company}"
-                                
+                                        pane = page.locator("#jobsearch-ViewjobPaneWrapper")
+                                        if await pane.count() > 0:
+                                            p_html = await pane.inner_html()
+                                            psoup = BeautifulSoup(p_html, "html.parser")
+                                            d_el = psoup.find(class_=lambda c: c and ("simple-job-description-html" in c or "jobsearch-jobDescriptionText" in c)) or psoup.find(id="jobDescriptionText")
+                                            if d_el:
+                                                desc_text = d_el.get_text(separator="\n", strip=True)
+                                            else:
+                                                desc_text = psoup.get_text(separator="\n", strip=True)
+                                except Exception:
+                                    pass
+                                    
+                        # Fallback al testo completo della card
+                        if not desc_text or len(desc_text) < 50:
+                            card_texts = [t.strip() for t in c_soup.stripped_strings if t.strip() and t.strip().lower() not in ("annuncio", "candidati facilmente", "salva")]
+                            desc_text = "\n".join(card_texts)
+                            
                         if not desc_text:
                             desc_text = "Descrizione non disponibile."
                             
@@ -210,23 +213,19 @@ class IndeedScraper:
                             "source": "Indeed"
                         })
                         
-                        print(f"    [Indeed] Estratto: {title} @ {company}")
+                        print(f"    [Indeed] Estratto: {title} @ {company} ({len(desc_text)} car)", flush=True)
                         
                         if len(jobs_found) >= max_results:
                             break
                             
                     except Exception as card_err:
-                        # In caso di micro-glitch su una singola card, continua con le altre
                         continue
                     
-                if len(jobs_found) >= max_results:
+                if len(jobs_found) >= max_results or count < 10:
                     break
                 
-                # Se non siamo autenticati, Indeed blocca la pagina 2 con redirect forzato (page-two-signin).
-                # Con la sessione attiva in indeed_session.json, invece, il ciclo continua fluidamente
-                # su Pagina 2, Pagina 3, ecc., estraendo tutti gli annunci della giornata!
                 if not self.is_authenticated and start == 0:
-                    print(f"    [i] Modalità Guest Indeed: Pagina 1 completata ({len(jobs_found)} offerte).")
+                    print(f"    [i] Modalità Guest Indeed: Pagina 1 completata ({len(jobs_found)} offerte).", flush=True)
                     break
                 
         finally:

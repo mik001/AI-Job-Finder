@@ -3,7 +3,9 @@ import os
 import sys
 
 if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(line_buffering=True)
+    sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", line_buffering=True)
 
 from src.scraper.linkedin_scraper import LinkedInScraper
 from src.scraper.indeed_scraper import IndeedScraper
@@ -159,37 +161,40 @@ async def main():
     seen_urls = set(already_evaluated_urls)
     
     # --- FASE 2A: LINKEDIN ---
-    print("\n[*] Fase 2A: Scraping massivo LinkedIn (ultime 24h)...")
+    print("\n[*] Fase 2A: Scraping massivo LinkedIn (ultime 24h)...", flush=True)
     await scraper.auth_manager.perform_login_if_needed()
     await scraper.init_browser()
     
-    for sq in search_queries:
+    total_queries = len(search_queries)
+    for idx, sq in enumerate(search_queries, 1):
+        print(f"\n[LinkedIn {idx}/{total_queries}] Ricerca '{sq['keywords']}' in '{sq['location']}'...", flush=True)
         try:
-            jobs = await scraper.run(keywords=sq["keywords"], location=sq["location"], max_results=100, seen_urls=seen_urls)
+            jobs = await scraper.run(keywords=sq["keywords"], location=sq["location"], max_results=50, seen_urls=seen_urls)
             for j in jobs:
                 all_jobs.append(j)
         except Exception as e:
-            print(f"[-] Errore query LinkedIn '{sq['keywords']}' in '{sq['location']}': {e}. Proseguo con le altre query.")
+            print(f"[-] Errore query LinkedIn '{sq['keywords']}' in '{sq['location']}': {e}. Proseguo con le altre query.", flush=True)
             
     await scraper.close_browser()
-    print(f"[+] LinkedIn completato: {len(all_jobs)} annunci unici raccolti finora.")
+    print(f"\n[+] LinkedIn completato: {len(all_jobs)} annunci unici raccolti finora.", flush=True)
     
     # --- FASE 2B: INDEED ---
-    print("\n[*] Fase 2B: Scraping massivo Indeed Italia (ultime 24h, paginazione autenticata)...")
+    print("\n[*] Fase 2B: Scraping massivo Indeed Italia (ultime 24h, paginazione autenticata)...", flush=True)
     indeed_scraper = IndeedScraper()
     await indeed_scraper.auth_manager.perform_login_if_needed()
     await indeed_scraper.init_browser()
     
-    for sq in search_queries:
+    for idx, sq in enumerate(search_queries, 1):
+        print(f"\n[Indeed {idx}/{total_queries}] Ricerca '{sq['keywords']}' in '{sq['location']}'...", flush=True)
         try:
-            indeed_jobs = await indeed_scraper.run(keywords=sq["keywords"], location=sq["location"], max_results=50, seen_urls=seen_urls)
+            indeed_jobs = await indeed_scraper.run(keywords=sq["keywords"], location=sq["location"], max_results=30, seen_urls=seen_urls)
             for j in indeed_jobs:
                 all_jobs.append(j)
         except Exception as e:
-            print(f"[-] Errore query Indeed '{sq['keywords']}' in '{sq['location']}': {e}. Proseguo con le altre query.")
+            print(f"[-] Errore query Indeed '{sq['keywords']}' in '{sq['location']}': {e}. Proseguo con le altre query.", flush=True)
             
     await indeed_scraper.close_browser()
-    print(f"[+] Scraping terminato! Totale aggregato (LinkedIn + Indeed): {len(all_jobs)} annunci unici.")
+    print(f"\n[+] Scraping terminato! Totale aggregato (LinkedIn + Indeed): {len(all_jobs)} annunci unici.", flush=True)
                 
     if not all_jobs:
         print("[-] Nessun annuncio trovato o fallimento scraping.")
