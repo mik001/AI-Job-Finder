@@ -30,6 +30,19 @@ class DuplicateCheck(BaseModel):
     confidence: int = Field(description="Punteggio di confidenza da 0 a 100 sulla decisione.")
     reason: str = Field(description="Breve motivazione del perché sono o non sono lo stesso annuncio.")
 
+# APL e Agenzie di Somministrazione generaliste che pubblicano sia ruoli interni di filiale sia missioni per aziende clienti terze.
+# Queste realtà NON devono MAI essere auto-scartate a priori: Gemini deve sempre valutare il contesto dell'annuncio.
+STAFFING_AGENCIES_DUAL_NATURE = {
+    "adecco", "the adecco group", "randstad", "gi group", "gi group holding",
+    "manpower", "manpowergroup", "umana", "openjobmetis", "synergie",
+    "maw", "men at work", "lavoropiù", "ali lavoro", "areajob", "adhr group",
+    "humangest", "sgb humangest holding", "eurofirms", "eurofirms group",
+    "in job", "quanta", "articiocco", "temporary", "generazione vincente",
+    "job italia", "smart skills center", "etjca", "alisia", "wintime",
+    "kelly services", "page personnel", "michael page", "spring professional",
+    "badenoch + clark", "experis"
+}
+
 class JobEvaluator:
     def __init__(self, user_profile: str):
         """
@@ -83,26 +96,29 @@ class JobEvaluator:
         except Exception as e:
             print(f"[-] Errore salvataggio blacklist agenzie: {e}")
 
+    def is_dual_nature_staffing(self, company_name: str) -> bool:
+        """Riconosce se un'azienda è un'APL che gestisce anche missioni in somministrazione per aziende clienti."""
+        norm = self._normalize_company_name(company_name)
+        return any(apl in norm for apl in STAFFING_AGENCIES_DUAL_NATURE)
+
     def evaluate(self, job_title: str, company: str, job_description: str) -> JobEvaluation:
         norm_company = self._normalize_company_name(company)
+        is_apl = self.is_dual_nature_staffing(company)
         
-        # Se l'annuncio specifica che la missione è per un'azienda cliente/terza, lasciamo valutare a Gemini
-        is_client_mission = any(kw in job_description.lower() for kw in [
-            "azienda cliente", "cliente finale", "società cliente", "realtà cliente", 
-            "gruppo cliente", "nostro cliente", "nostra azienda cliente"
-        ])
-        
-        # 1. Filtro Auto-Appreso: se Gemini l'ha già catalogata come agenzia e NON è una missione per cliente finale, scarta a costo zero
-        if norm_company and norm_company in self.learned_agencies and not is_client_mission:
-            print(f"    ⚡ [AI-Learned Filter] '{company}' già classificata da Gemini come Agenzia (ruolo di filiale). Auto-scarto a zero token!")
+        # 1. Se è un'APL (Adecco, Randstad, Umana, ecc.), non viene MAI auto-scartata a monte.
+        # Deve sempre essere valutata da Gemini per distinguere tra ruolo di filiale e missione in azienda cliente.
+        if is_apl:
+            print(f"    🏢 [APL Somministrazione] '{company}' gestisce somministrazioni per terzi. Inoltro a Gemini per analisi contesto...")
+        elif norm_company and norm_company in self.learned_agencies:
+            print(f"    ⚡ [AI-Learned Filter] '{company}' già classificata da Gemini come Headhunting/Consulenza pura. Auto-scarto a zero token!")
             return JobEvaluation(
                 is_match=False,
                 fit_score=0,
                 salary_range=None,
                 tech_stack=[],
                 pros=[],
-                cons=["Azienda già classificata come agenzia per il lavoro o consulenza da Gemini."],
-                reasoning=f"L'azienda '{company}' è già stata precedentemente identificata da Gemini come Agenzia per il Lavoro / Somministrazione. Scartata in automatico.",
+                cons=["Azienda già classificata come società di consulenza esterna o headhunting puro da Gemini."],
+                reasoning=f"L'azienda '{company}' è già stata precedentemente identificata da Gemini come società di consulenza esterna/headhunting puro. Scartata in automatico.",
                 rejection_tag=RejectionReason.AGENZIA
             )
         
@@ -126,12 +142,12 @@ class JobEvaluator:
         print(f"    🤖 Chiamata Gemini 3.8 Flash per valutazione approfondita...")
         result = self.structured_llm.invoke(prompt)
         
-        # 2. Se Gemini ha riconosciuto un'agenzia, memorizzala per sempre
+        # 2. Se Gemini ha riconosciuto un'agenzia, memorizzala per sempre SOLO se NON è un'APL di somministrazione
         if not result.is_match and result.rejection_tag == RejectionReason.AGENZIA and norm_company:
-            if norm_company not in self.learned_agencies:
+            if not is_apl and norm_company not in self.learned_agencies:
                 self.learned_agencies.add(norm_company)
                 self._save_learned_agencies()
-                print(f"    🧠 [AI-Learned Filter] Nuova agenzia appresa da Gemini: '{company}' aggiunta al database persistente.")
+                print(f"    🧠 [AI-Learned Filter] Nuova società di consulenza/headhunting appresa da Gemini: '{company}' aggiunta al database persistente.")
                 
         return result
 
