@@ -193,13 +193,43 @@ Quando lo scraper naviga sulla pagina singola dell'annuncio (`https://www.linked
 
 ---
 
-### 2. Blueprint per Altre Piattaforme (Indeed, InfoJobs)
+---
 
-L'architettura è stata progettata in modo modulare affinché nuovi portali possano essere aggiunti ereditando l'interfaccia standard e il gestore sessioni:
+### 2. Indeed Italia Scraper (Zero Login, Click-to-Load Ultra-Fast)
+
+Indeed rappresenta la seconda piattaforma cardine per volumi in Italia e l'accesso privilegiato alle PMI e aziende finali del Sud che evitano i costi elevati degli annunci LinkedIn. Il modulo [src/scraper/indeed_scraper.py](file:///c:/Users/borgi/projects/AI-Job-Finder/src/scraper/indeed_scraper.py) è stato sviluppato per massimizzare la velocità attraverso un'architettura **Click-to-Load Single-Page**.
+
+#### A. Zero Registrazione / Nessun Account Richiesto
+- **Vantaggio Ingegneristico**: A differenza di LinkedIn, Indeed permette l'accesso incondizionato alla ricerca, alle schede lavoro e all'intero corpo della descrizione **senza obbligo di login**.
+- **Benefici**: Zero rischio di ban account, nessuna credenziale o sessione cookie da rinnovare su disco, avvio del browser istantaneo.
+
+#### B. Evasione Anti-Bot & Gestione Popup
+- **Playwright Stealth**: Mascheramento delle firme di automazione (`navigator.webdriver`, viewport a 1920x1080, User-Agent desktop Chromium 122+). La richiesta iniziale restituisce regolarmente `Status 200 OK` senza sfide Cloudflare Turnstile.
+- **Accettazione Cookie**: Il banner OneTrust (`button#onetrust-accept-btn-handler`) viene intercettato e accettato automaticamente alla prima esecuzione.
+- **Dismissal Modali con Tasto Escape**: Su Indeed, dopo aver cliccato 2 o 3 offerte consecutive, compare spesso una finestra modale sovrimpressa che invita a creare un avviso email o a registrarsi. Nel nostro scraper, prima di ogni interazione viene inviato l'evento `await page.keyboard.press("Escape")`, neutralizzando qualsiasi overlay senza bloccare il thread.
+
+#### C. L'Architettura "Click-to-Load" Single-Page (0.4s per annuncio)
+- Su Indeed non è necessario eseguire `page.goto()` sull'URL di ciascun annuncio (operazione lenta che richiede il rendering di un'intera nuova pagina).
+- **Meccanismo a Pannello Laterale**: Nella schermata dei risultati di ricerca, ogni card appartiene alla classe `.cardOutline`. Cliccando programmaticamente sul link del titolo (`h2.jobTitle a, a.jcs-JobTitle`), Indeed aggiorna istantaneamente il pannello laterale destro (`#jobsearch-ViewjobPaneWrapper`) via AJAX in meno di 500ms.
+- **Estrazione Descrizione Completa**: Il testo integrale della descrizione viene prelevato dal div `#jobDescriptionText` direttamente dal DOM del pannello laterale, insieme ai metadati di stipendio/RAL (es. `32.000 € - 38.000 € al mese`) e tipo di contratto (`Tempo indeterminato`).
+
+#### D. Estrazione URL Canonici Puliti (`data-jk`)
+- **Problema dei Link Sponsorizzati**: Cliccando sui link standard di Indeed, gli URL puntano a percorsi di reindirizzamento e tracciamento commerciale (`/pagead/clk?mo=...`) che contengono centinaia di caratteri di query string.
+- **Soluzione Applicata**: Il parser estrae l'attributo univoco `data-jk` (Job Key, es. `92903ae8871c23cf`) presente nel tag della card e sintetizza l'URL canonico permanente e pulito:
+  `https://it.indeed.com/viewjob?jk={jk}`.
+
+#### E. Paginazione & Filtro Temporale Giornaliero (24 Ore)
+- **Filtro Ultime 24 Ore**: Utilizzo della query string nativa `&fromage=1&sort=date`. Il parametro `fromage=1` istruisce Indeed a mostrare rigorosamente le offerte pubblicate nell'ultimo giorno, mentre `sort=date` le ordina cronologicamente.
+- **Paginazione**: Incremento del parametro URL `&start=0`, `&start=10`, `&start=20`, `&start=30`... fino al raggiungimento di `max_results` o all'esaurimento delle card presenti sulla pagina.
+
+---
+
+### 3. Blueprint per Future Piattaforme (InfoJobs, Glassdoor)
+
+L'architettura è aperta all'estensione verso ulteriori board di settore:
 
 | Piattaforma | Meccanismo di Paginazione | Selettore Lista Card | Selettore Descrizione | Protezioni Specifiche |
 | :--- | :--- | :--- | :--- | :--- |
-| **Indeed** | Parametro URL `&start=10, 20, ...` | `div.job_seen_beacon` o `td.resultContent` | `div#jobDescriptionText` | Cloudflare Turnstile, popup "Crea un avviso" |
 | **InfoJobs** | Parametro URL `&page=2, 3, ...` | `li.ij-ComponentList-item` | `div.description-content` | Cookie banner bloccante, form di login tradizionale |
 | **Glassdoor** | Parametro URL `&p=2, 3, ...` | `li[data-test='jobListing']` | `div.JobDetails_jobDescription__...` | Obbligo di login per visualizzare stipendi e dettagli |
 

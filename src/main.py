@@ -1,6 +1,7 @@
 import asyncio
 import os
 from src.scraper.linkedin_scraper import LinkedInScraper
+from src.scraper.indeed_scraper import IndeedScraper
 from src.evaluator.job_evaluator import JobEvaluator
 from src.agents.contact_hunter import contact_hunter_app
 from src.notifier.whatsapp_notifier import WhatsAppNotifier
@@ -49,21 +50,34 @@ async def main():
         {"keywords": "Selezione del Personale", "location": "Bari"}
     ]
     
-    print("\n[*] Fase 1: Verifica e Login sulle piattaforme...")
-    await scraper.auth_manager.perform_login_if_needed()
-    await scraper.init_browser()
-    
-    print("\n[*] Fase 2: Scraping massivo delle Board con query ampie...")
     all_jobs = []
     seen_urls = set()
     
+    # --- FASE 2A: LINKEDIN ---
+    print("\n[*] Fase 2A: Scraping massivo LinkedIn (ultime 24h)...")
+    await scraper.auth_manager.perform_login_if_needed()
+    await scraper.init_browser()
+    
     for sq in search_queries:
-        # Passiamo seen_urls allo scraper così salta gli annunci duplicati *prima* di caricarne la descrizione
         jobs = await scraper.run(keywords=sq["keywords"], location=sq["location"], max_results=100, seen_urls=seen_urls)
         for j in jobs:
             all_jobs.append(j)
             
     await scraper.close_browser()
+    print(f"[+] LinkedIn completato: {len(all_jobs)} annunci unici raccolti finora.")
+    
+    # --- FASE 2B: INDEED ---
+    print("\n[*] Fase 2B: Scraping massivo Indeed Italia (ultime 24h, zero login)...")
+    indeed_scraper = IndeedScraper()
+    await indeed_scraper.init_browser()
+    
+    for sq in search_queries:
+        indeed_jobs = await indeed_scraper.run(keywords=sq["keywords"], location=sq["location"], max_results=50, seen_urls=seen_urls)
+        for j in indeed_jobs:
+            all_jobs.append(j)
+            
+    await indeed_scraper.close_browser()
+    print(f"[+] Scraping terminato! Totale aggregato (LinkedIn + Indeed): {len(all_jobs)} annunci unici.")
                 
     if not all_jobs:
         print("[-] Nessun annuncio trovato o fallimento scraping.")
@@ -78,7 +92,7 @@ async def main():
     file_exists = os.path.isfile(history_file)
     
     with open(history_file, mode="a", newline="", encoding="utf-8") as csvfile:
-        fieldnames = ["Data", "Titolo", "Azienda", "Match", "Rejection_Tag", "Reasoning", "URL"]
+        fieldnames = ["Data", "Piattaforma", "Titolo", "Azienda", "Match", "Rejection_Tag", "Reasoning", "URL"]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         
         if not file_exists:
@@ -93,14 +107,16 @@ async def main():
                     job_description=job["description"]
                 )
                 
-                print(f"[{'MATCH' if evaluation.is_match else 'SCARTATO'}] {job['title']} @ {job['company']}")
+                source = job.get("source", "LinkedIn")
+                print(f"[{'MATCH' if evaluation.is_match else 'SCARTATO'}] [{source}] {job['title']} @ {job['company']}")
                 if not evaluation.is_match and evaluation.rejection_tag:
-                    print(f"    Tag Rifiuto: {evaluation.rejection_tag}")
+                    print(f"    Tag Rifiuto: {evaluation.rejection_tag.value}")
                 print(f"    Reasoning: {evaluation.reasoning}\n")
                 
                 # Salvataggio nello storico
                 writer.writerow({
                     "Data": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "Piattaforma": source,
                     "Titolo": job["title"],
                     "Azienda": job["company"],
                     "Match": "SI" if evaluation.is_match else "NO",
