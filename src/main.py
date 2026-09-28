@@ -26,12 +26,44 @@ ALTRE REGOLE MORBIDE (NON SCARTARE):
 import hashlib
 import re
 
+def clean_company_name(name: str) -> str:
+    """Normalizza il nome azienda eliminando suffissi societari e caratteri spuri."""
+    name = name.lower().strip()
+    if "(" in name:
+        name = name.split("(")[0].strip()
+    for suffix in [" s.p.a.", " spa", " s.r.l.", " srl", " s.a.s.", " sas", " inc.", " ltd", " gmbh"]:
+        if name.endswith(suffix):
+            name = name[:-len(suffix)].strip()
+    return re.sub(r'[^a-z0-9]', '', name)
+
+def clean_job_title(title: str) -> str:
+    """Normalizza il titolo dell'annuncio rimuovendo gender tags (m/f) e punteggiatura."""
+    title = title.lower().strip()
+    # Rimuove gender tags comuni come (m/f), (m/f/d), (f/m), - m/f, ecc.
+    title = re.sub(r'\((m|f|d|u)[/\\](m|f|d|u)(?:[/\\](m|f|d|u))?\)', '', title)
+    title = re.sub(r'[-–|]\s*(m|f|d)[/\\](m|f|d)', '', title)
+    return re.sub(r'[^a-z0-9]', '', title)
+
+def clean_description_body(text: str) -> str:
+    """Estrae i lemmi centrali del testo eliminando boilerplate di piattaforma e privacy."""
+    text = text.lower()
+    boilerplates = [
+        "indeed", "linkedin", "easy apply", "candidati ora", "candidati facilmente",
+        "trattamento dei dati personali", "informativa privacy", "d.lgs 196/2003", "gdpr",
+        "pari opportunità", "l. 903/77", "l. 125/91", "tutti i generi", "legge 68/99"
+    ]
+    for bp in boilerplates:
+        text = text.replace(bp, " ")
+    words = re.findall(r'\b[a-z]{3,}\b', text)
+    # Prendiamo i primi 200 lemmi significativi che costituiscono l'essenza dell'annuncio
+    return " ".join(words[:200])
+
 def compute_content_hash(company: str, title: str, description: str) -> str:
-    """Calcola un'impronta digitale SHA-256 univoca basata su azienda, titolo e testo dell'annuncio."""
-    clean_company = re.sub(r'\W+', '', company.lower())
-    clean_title = re.sub(r'\W+', '', title.lower())
-    clean_desc = re.sub(r'\s+', ' ', description.lower().strip())[:1500]
-    payload = f"{clean_company}_{clean_title}_{clean_desc}"
+    """Calcola un'impronta digitale SHA-256 cross-platform resistente a formattazioni e footer."""
+    c_comp = clean_company_name(company)
+    c_title = clean_job_title(title)
+    c_body = clean_description_body(description)
+    payload = f"{c_comp}_{c_title}_{c_body}"
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 async def main():
