@@ -160,6 +160,7 @@ class IndeedScraper:
                         # Deduplicazione preventiva
                         if job_url in seen_urls:
                             continue
+                        seen_urls.add(job_url)
                             
                         # Chiudi eventuali dialog o popup premendo Escape
                         await page.keyboard.press("Escape")
