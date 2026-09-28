@@ -82,9 +82,15 @@ class JobEvaluator:
         
         norm_company = self._normalize_company_name(company)
         
-        # 1. Filtro Auto-Appreso: se Gemini l'ha già catalogata come agenzia, scarta a costo zero
-        if norm_company and norm_company in self.learned_agencies:
-            print(f"    ⚡ [AI-Learned Filter] '{company}' già classificata da Gemini come Agenzia. Auto-scarto a zero token!")
+        # Se l'annuncio specifica che la missione è per un'azienda cliente/terza, lasciamo valutare a Gemini
+        is_client_mission = any(kw in job_description.lower() for kw in [
+            "azienda cliente", "cliente finale", "società cliente", "realtà cliente", 
+            "gruppo cliente", "nostro cliente", "nostra azienda cliente"
+        ])
+        
+        # 1. Filtro Auto-Appreso: se Gemini l'ha già catalogata come agenzia e NON è una missione per cliente finale, scarta a costo zero
+        if norm_company and norm_company in self.learned_agencies and not is_client_mission:
+            print(f"    ⚡ [AI-Learned Filter] '{company}' già classificata da Gemini come Agenzia (ruolo di filiale). Auto-scarto a zero token!")
             return JobEvaluation(
                 is_match=False,
                 fit_score=0,

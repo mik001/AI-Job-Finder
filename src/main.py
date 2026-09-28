@@ -9,14 +9,18 @@ from src.notifier.whatsapp_notifier import WhatsAppNotifier
 # Configurazione del profilo della candidata
 CANDIDATE_PROFILE = """
 Candidata: 30 anni, 4 anni di esperienza nel settore HR come Recruiter (executive search in Randstad Professional e attualmente in somministrazione).
-Obiettivo: Uscire dalle agenzie per il lavoro/società di consulenza e trovare un ruolo HR INTERNO ad un'azienda finale (non agenzia).
-Ruoli accettati: Recruiter interna, HR Generalist, HR Specialist, o altri ruoli HR.
+Obiettivo Principale: Fare esperienza e lavorare come HR INTERNA all'interno del team di un'azienda cliente finale.
+Ruoli accettati: Recruiter interna, HR Generalist, HR Specialist, Talent Acquisition, People Operations, o altri ruoli HR.
 Località e Modalità di Lavoro: 
 - Accetta lavoro in sede o ibrido (es. un paio di giorni a settimana in ufficio) SOLO se a Bari o dintorni.
 - Accetta Full Remote (o ibrido con presenza rarissima in sede, es. 1 volta al mese) in tutta Italia.
-Aziende ESCLUSE: Categoricamente NO ad agenzie interinali, società di recruiting, società di consulenza HR, headhunting o simili (es. Randstad, Adecco, PageGroup, GiGroup, ecc.).
 
-ATTENZIONE: La seniority troppo alta (es. Senior/Manager), troppo bassa (es. Stage/Junior) o la modalità Freelance/P.IVA NON DEVONO essere un motivo di scarto (non impostare is_match=False per questi motivi). Includile semplicemente nei 'cons' (aspetti negativi/warning) ma considera l'annuncio VALIDO (is_match=True) se rispetta il vincolo della sede e non è un'agenzia.
+REGOLA FONDAMENTALE SU AGENZIE E SOMMINISTRAZIONE:
+- Categoricamente NO a ruoli interni di filiale presso agenzie per il lavoro (es. fare il recruiter di filiale in Adecco/Randstad/Manpower che seleziona per conto di terzi).
+- ACCETTATO CON VALUTAZIONE POSITIVA (is_match=True): Contratti di somministrazione o staff leasing (anche se emessi da Adecco, Randstad, ecc.) IN CUI LA CANDIDATA VIENE INSERITA A LAVORARE DENTRO IL TEAM HR DI UN'AZIENDA CLIENTE FINALE (es. "per conto di nostra azienda cliente cerchiamo HR Generalist/Recruiter"). Questa tipologia di lavoro in azienda terza è considerata un ottimo trampolino di lancio per fare esperienza aziendale ed è da considerare valida se rispetta la sede (Bari o Full Remote).
+
+ALTRE REGOLE MORBIDE (NON SCARTARE):
+- La seniority troppo alta (es. Senior/Manager), troppo bassa (es. Stage/Junior) o la modalità Freelance/P.IVA NON DEVONO essere un motivo di scarto. Includile nei 'cons' (warning) ma mantieni is_match=True se l'annuncio rispetta la sede e la natura del ruolo aziendale.
 """
 
 async def main():
