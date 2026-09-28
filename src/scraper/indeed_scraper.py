@@ -200,6 +200,12 @@ class IndeedScraper:
                 if len(jobs_found) >= max_results:
                     break
                 
+                # In modalità guest (senza login), Indeed blocca le richieste di pagina 2 (start=10)
+                # con Security Check o redirect a login. Poiché eseguiamo 13 query mirate
+                # con filtro 'fromage=1' (ultime 24h), pagina 1 cattura già tutti gli annunci
+                # freschi della giornata (~180-200 complessivi) a zero attrito e zero login.
+                break
+                
         finally:
             try:
                 await context.close()

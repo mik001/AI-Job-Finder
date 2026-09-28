@@ -192,8 +192,10 @@ async def main():
     print(f"\n[*] Fase 2: Inizio valutazione AI di {len(all_jobs)} annunci unici con Gemini 3.8 Flash...\n")
     
     with open(history_file, mode="a", newline="", encoding="utf-8") as csvfile:
-        fieldnames = ["Data", "Piattaforma", "Titolo", "Azienda", "Match", "Rejection_Tag", "Stato_UI", "Content_Hash", "Reasoning", "URL"]
+        fieldnames = ["Data", "Piattaforma", "Titolo", "Azienda", "Match", "Rejection_Tag", "Stato_UI", "Content_Hash", "Reasoning", "URL", "Description"]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        if not file_exists or os.path.getsize(history_file) == 0:
+            writer.writeheader()
         
         total_eval_jobs = len(all_jobs)
         print(f"[*] Inizio ciclo di valutazione su {total_eval_jobs} annunci...\n")
@@ -225,7 +227,8 @@ async def main():
                     "Stato_UI": "NON_LETTO",
                     "Content_Hash": job_hash,
                     "Reasoning": f"[REPOST RILEVATO DA FINGERPRINT] {prev.get('Reasoning', '')}",
-                    "URL": job["url"]
+                    "URL": job["url"],
+                    "Description": job.get("description", "")
                 })
                 csvfile.flush()
                 continue
@@ -258,7 +261,8 @@ async def main():
                         "Stato_UI": "NON_LETTO",
                         "Content_Hash": canonical_hash,
                         "Reasoning": f"[DUPLICATO CROSS-PLATFORM CONFERMATO DA GEMINI] {fuzzy_cand.get('Reasoning', '')}",
-                        "URL": job["url"]
+                        "URL": job["url"],
+                        "Description": job.get("description", "")
                     })
                     csvfile.flush()
                     continue
@@ -289,7 +293,8 @@ async def main():
                     "Stato_UI": "NON_LETTO",
                     "Content_Hash": job_hash,
                     "Reasoning": evaluation.reasoning,
-                    "URL": job["url"]
+                    "URL": job["url"],
+                    "Description": job.get("description", "")
                 })
                 csvfile.flush()
                 
