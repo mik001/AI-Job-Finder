@@ -44,9 +44,57 @@ class JobEvaluator:
         )
         
         self.structured_llm = self.llm.with_structured_output(JobEvaluation)
+        self.blacklist_file = os.path.join("data", "learned_agencies.json")
+        self.learned_agencies = self._load_learned_agencies()
+
+    def _normalize_company_name(self, name: str) -> str:
+        name = name.lower().strip()
+        if "(" in name:
+            name = name.split("(")[0].strip()
+        for suffix in [" s.p.a.", " spa", " s.r.l.", " srl", " s.a.s.", " sas", " inc.", " ltd"]:
+            if name.endswith(suffix):
+                name = name[:-len(suffix)].strip()
+        return name
+
+    def _load_learned_agencies(self) -> set:
+        os.makedirs("data", exist_ok=True)
+        if os.path.exists(self.blacklist_file):
+            try:
+                import json
+                with open(self.blacklist_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    return set(data)
+            except Exception:
+                return set()
+        return set()
+
+    def _save_learned_agencies(self):
+        try:
+            import json
+            os.makedirs("data", exist_ok=True)
+            with open(self.blacklist_file, "w", encoding="utf-8") as f:
+                json.dump(sorted(list(self.learned_agencies)), f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"[-] Errore salvataggio blacklist agenzie: {e}")
 
     def evaluate(self, job_title: str, company: str, job_description: str) -> JobEvaluation:
         print(f"[*] Valutazione annuncio in corso: {job_title} @ {company}...")
+        
+        norm_company = self._normalize_company_name(company)
+        
+        # 1. Filtro Auto-Appreso: se Gemini l'ha già catalogata come agenzia, scarta a costo zero
+        if norm_company and norm_company in self.learned_agencies:
+            print(f"    ⚡ [AI-Learned Filter] '{company}' già classificata da Gemini come Agenzia. Auto-scarto a zero token!")
+            return JobEvaluation(
+                is_match=False,
+                fit_score=0,
+                salary_range=None,
+                tech_stack=[],
+                pros=[],
+                cons=["Azienda già classificata come agenzia per il lavoro o consulenza da Gemini."],
+                reasoning=f"L'azienda '{company}' è già stata precedentemente identificata da Gemini come Agenzia per il Lavoro / Somministrazione. Scartata in automatico.",
+                rejection_tag=RejectionReason.AGENZIA
+            )
         
         prompt = f"""
         Sei un formidabile Tech Recruiter AI. Il tuo compito è leggere una Job Description 
@@ -66,6 +114,14 @@ class JobEvaluator:
         """
         
         result = self.structured_llm.invoke(prompt)
+        
+        # 2. Se Gemini ha riconosciuto un'agenzia, memorizzala per sempre
+        if not result.is_match and result.rejection_tag == RejectionReason.AGENZIA and norm_company:
+            if norm_company not in self.learned_agencies:
+                self.learned_agencies.add(norm_company)
+                self._save_learned_agencies()
+                print(f"    🧠 [AI-Learned Filter] Nuova agenzia appresa da Gemini: '{company}' aggiunta al database persistente.")
+                
         return result
 
 if __name__ == "__main__":

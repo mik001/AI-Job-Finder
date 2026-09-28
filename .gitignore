@@ -1,12 +1,9 @@
 # Environment and secrets
 .env
 *.env
-*.json
-!requirements.txt
-
-# Session cookies and state
+data/sessions/
 linkedin_session.json
-data/
+!data/learned_agencies.json
 *.png
 *.jpg
 *.jpeg

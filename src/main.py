@@ -90,15 +90,32 @@ async def main():
     
     history_file = "history.csv"
     file_exists = os.path.isfile(history_file)
+    already_evaluated_urls = set()
+    
+    if file_exists:
+        try:
+            with open(history_file, mode="r", encoding="utf-8") as existing_f:
+                reader = csv.DictReader(existing_f)
+                for row in reader:
+                    if row.get("URL"):
+                        already_evaluated_urls.add(row["URL"])
+            if already_evaluated_urls:
+                print(f"[*] Caricati {len(already_evaluated_urls)} annunci già storicizzati in passato. Verranno saltati per risparmiare chiamate AI.")
+        except Exception as e:
+            print(f"[-] Avviso lettura storico precedente: {e}")
     
     with open(history_file, mode="a", newline="", encoding="utf-8") as csvfile:
-        fieldnames = ["Data", "Piattaforma", "Titolo", "Azienda", "Match", "Rejection_Tag", "Reasoning", "URL"]
+        fieldnames = ["Data", "Piattaforma", "Titolo", "Azienda", "Match", "Rejection_Tag", "Stato_UI", "Reasoning", "URL"]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         
         if not file_exists:
             writer.writeheader()
             
         for job in all_jobs:
+            if job["url"] in already_evaluated_urls:
+                # Già valutato in una precedente run, non consumiamo chiamate AI
+                continue
+                
             try:
                 # 3. Valutazione AI
                 evaluation = evaluator.evaluate(
@@ -113,7 +130,7 @@ async def main():
                     print(f"    Tag Rifiuto: {evaluation.rejection_tag.value}")
                 print(f"    Reasoning: {evaluation.reasoning}\n")
                 
-                # Salvataggio nello storico
+                # Salvataggio nello storico (Stato_UI default su NON_LETTO affinché l'utente possa visualizzarlo e scartarlo dalla UI)
                 writer.writerow({
                     "Data": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "Piattaforma": source,
@@ -121,6 +138,7 @@ async def main():
                     "Azienda": job["company"],
                     "Match": "SI" if evaluation.is_match else "NO",
                     "Rejection_Tag": evaluation.rejection_tag.value if (not evaluation.is_match and evaluation.rejection_tag) else "",
+                    "Stato_UI": "NON_LETTO",
                     "Reasoning": evaluation.reasoning,
                     "URL": job["url"]
                 })
