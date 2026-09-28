@@ -1,5 +1,10 @@
 import asyncio
 import os
+import sys
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(line_buffering=True)
+
 from src.scraper.linkedin_scraper import LinkedInScraper
 from src.scraper.indeed_scraper import IndeedScraper
 from src.evaluator.job_evaluator import JobEvaluator

@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  ai-job-finder:
+    build: .
+    container_name: ai_job_finder
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      # Persistenza dei dati, storici e sessioni
+      - ./history.csv:/app/history.csv
+      - ./data:/app/data
+      - ./indeed_session.json:/app/indeed_session.json
+      - ./linkedin_session.json:/app/linkedin_session.json

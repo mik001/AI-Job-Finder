@@ -166,29 +166,38 @@ class IndeedScraper:
                         await page.keyboard.press("Escape")
                         await page.wait_for_timeout(100)
                         
-                        # Clicchiamo specificamente il link del titolo per attivare il cambio di annuncio nel pannello destro
+                        # Clicchiamo per attivare il pannello laterale evitando link sponsorizzati che deviano la pagina
                         title_link = card.locator("h2.jobTitle a, a.jcs-JobTitle, a[id*='job_']").first
+                        is_ad = False
                         if await title_link.count() > 0:
+                            href = await title_link.get_attribute("href") or ""
+                            if "/pagead/" in href:
+                                is_ad = True
+                                
+                        desc_text = ""
+                        if not is_ad and await title_link.count() > 0:
                             link_el = await title_link.element_handle()
                             await page.evaluate("(el) => el.click()", link_el)
-                        else:
-                            card_el = await card.element_handle()
-                            if card_el:
-                                await page.evaluate("(el) => el.click()", card_el)
-                                
-                        await page.wait_for_timeout(900)
-                        
-                        # Estrazione dal pannello laterale ViewjobPaneWrapper
-                        pane = page.locator("#jobsearch-ViewjobPaneWrapper")
-                        desc_text = ""
-                        if await pane.count() > 0:
-                            pane_html = await pane.inner_html()
-                            pane_soup = BeautifulSoup(pane_html, "html.parser")
-                            desc_div = pane_soup.find("div", id="jobDescriptionText") or pane_soup.find(class_=lambda c: c and "jobsearch-jobDescriptionText" in c)
-                            if desc_div:
-                                desc_text = desc_div.get_text(separator="\n", strip=True)
+                            await page.wait_for_timeout(800)
+                            
+                            # Se la pagina ha navigato via, ripristiniamo la vista di ricerca
+                            if not page.url.startswith("https://it.indeed.com/jobs"):
+                                await page.go_back(wait_until="domcontentloaded")
+                                await page.wait_for_timeout(1000)
                             else:
-                                desc_text = pane_soup.get_text(separator="\n", strip=True)
+                                pane = page.locator("#jobsearch-ViewjobPaneWrapper")
+                                if await pane.count() > 0:
+                                    pane_html = await pane.inner_html()
+                                    pane_soup = BeautifulSoup(pane_html, "html.parser")
+                                    desc_div = pane_soup.find("div", id="jobDescriptionText") or pane_soup.find(class_=lambda c: c and "jobsearch-jobDescriptionText" in c)
+                                    if desc_div:
+                                        desc_text = desc_div.get_text(separator="\n", strip=True)
+                                    else:
+                                        desc_text = pane_soup.get_text(separator="\n", strip=True)
+                        else:
+                            # Per annunci sponsorizzati/esterni, estraiamo lo snippet descrittivo dalla card senza deviare la navigazione
+                            snippet = soup.find("div", class_=lambda c: c and ("job-snippet" in c or "underShelfFooter" in c))
+                            desc_text = snippet.get_text(separator="\n", strip=True) if snippet else f"{title} presso {company}"
                                 
                         if not desc_text:
                             desc_text = "Descrizione non disponibile."
