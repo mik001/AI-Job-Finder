@@ -5,7 +5,8 @@ from bs4 import BeautifulSoup
 
 class LinkedInScraper:
     def __init__(self):
-        # f_TPR=r90000 imposta la finestra a 25 ore (90.000 secondi) per evitare vuoti tra run giornaliere
+        self.auth_manager = AuthManager("linkedin")
+        # f_TPR=r90000 filtra le ultime 25 ore (90.000 secondi) per evitare finestre di vuoto tra scansioni giornaliere
         self.base_url = "https://www.linkedin.com/jobs/search/?keywords={keywords}&location={location}&f_TPR=r90000&sortBy=DD&start={start}"
         self.p = None
         self.context = None
