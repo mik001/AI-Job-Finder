@@ -170,8 +170,9 @@ async def main():
     print(f"[+] LinkedIn completato: {len(all_jobs)} annunci unici raccolti finora.")
     
     # --- FASE 2B: INDEED ---
-    print("\n[*] Fase 2B: Scraping massivo Indeed Italia (ultime 24h, zero login)...")
+    print("\n[*] Fase 2B: Scraping massivo Indeed Italia (ultime 24h, paginazione autenticata)...")
     indeed_scraper = IndeedScraper()
+    await indeed_scraper.auth_manager.perform_login_if_needed()
     await indeed_scraper.init_browser()
     
     for sq in search_queries:

@@ -3,6 +3,8 @@
 *.env
 data/sessions/
 linkedin_session.json
+indeed_session.json
+*_session.json
 !data/learned_agencies.json
 *.png
 *.jpg

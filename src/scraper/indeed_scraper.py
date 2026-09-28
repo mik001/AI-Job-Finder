@@ -1,23 +1,29 @@
+import os
 import asyncio
 from playwright.async_api import async_playwright, Page
 from playwright_stealth import Stealth
 from bs4 import BeautifulSoup
 from typing import List, Dict, Set
+from src.scraper.auth_manager import AuthManager
 
 class IndeedScraper:
     def __init__(self):
+        self.auth_manager = AuthManager("indeed")
         # fromage=1 filtra esclusivamente le ultime 24 ore (giornaliero)
         self.base_url = "https://it.indeed.com/jobs?q={keywords}&l={location}&fromage=1&sort=date&start={start}"
         self.p = None
         self.browser = None
-        self.context = None
-        self.page = None
-        self.cookie_accepted = False
+        self.session_file = self.auth_manager.session_file
+        self.is_authenticated = os.path.exists(self.session_file)
 
     async def init_browser(self):
         """Inizializza un browser Chromium dedicato con Playwright."""
+        self.is_authenticated = os.path.exists(self.session_file)
         self.p = await async_playwright().start()
-        self.browser = await self.p.chromium.launch(headless=True)
+        self.browser = await self.p.chromium.launch(
+            headless=True,
+            args=['--disable-blink-features=AutomationControlled']
+        )
 
     async def close_browser(self):
         """Chiude le risorse del browser."""
@@ -27,11 +33,17 @@ class IndeedScraper:
             await self.p.stop()
 
     async def _create_context(self):
-        """Crea un contesto stealth isolato per bypassare i controlli Cloudflare tra query consecutive."""
-        context = await self.browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            viewport={"width": 1920, "height": 1080}
-        )
+        """Crea un contesto stealth isolato caricando la sessione Indeed se disponibile."""
+        context_kwargs = {
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "viewport": {"width": 1920, "height": 1080},
+            "locale": "it-IT"
+        }
+        if self.is_authenticated and os.path.exists(self.session_file):
+            context = await self.browser.new_context(storage_state=self.session_file, **context_kwargs)
+        else:
+            context = await self.browser.new_context(**context_kwargs)
+            
         await Stealth().apply_stealth_async(context)
         page = await context.new_page()
         return context, page
@@ -200,11 +212,12 @@ class IndeedScraper:
                 if len(jobs_found) >= max_results:
                     break
                 
-                # In modalità guest (senza login), Indeed blocca le richieste di pagina 2 (start=10)
-                # con Security Check o redirect a login. Poiché eseguiamo 13 query mirate
-                # con filtro 'fromage=1' (ultime 24h), pagina 1 cattura già tutti gli annunci
-                # freschi della giornata (~180-200 complessivi) a zero attrito e zero login.
-                break
+                # Se non siamo autenticati, Indeed blocca la pagina 2 con redirect forzato (page-two-signin).
+                # Con la sessione attiva in indeed_session.json, invece, il ciclo continua fluidamente
+                # su Pagina 2, Pagina 3, ecc., estraendo tutti gli annunci della giornata!
+                if not self.is_authenticated and start == 0:
+                    print(f"    [i] Modalità Guest Indeed: Pagina 1 completata ({len(jobs_found)} offerte).")
+                    break
                 
         finally:
             try:
