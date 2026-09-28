@@ -84,8 +84,6 @@ class JobEvaluator:
             print(f"[-] Errore salvataggio blacklist agenzie: {e}")
 
     def evaluate(self, job_title: str, company: str, job_description: str) -> JobEvaluation:
-        print(f"[*] Valutazione annuncio in corso: {job_title} @ {company}...")
-        
         norm_company = self._normalize_company_name(company)
         
         # Se l'annuncio specifica che la missione è per un'azienda cliente/terza, lasciamo valutare a Gemini
@@ -125,6 +123,7 @@ class JobEvaluator:
         (es. 100% in ufficio quando lui chiede remote, o un linguaggio di programmazione che odia), imposta is_match=False.
         """
         
+        print(f"    🤖 Chiamata Gemini 3.8 Flash per valutazione approfondita...")
         result = self.structured_llm.invoke(prompt)
         
         # 2. Se Gemini ha riconosciuto un'agenzia, memorizzala per sempre

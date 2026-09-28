@@ -186,10 +186,12 @@ async def main():
         fieldnames = ["Data", "Piattaforma", "Titolo", "Azienda", "Match", "Rejection_Tag", "Stato_UI", "Content_Hash", "Reasoning", "URL"]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         
-        if not file_exists:
-            writer.writeheader()
+        total_eval_jobs = len(all_jobs)
+        print(f"[*] Inizio ciclo di valutazione su {total_eval_jobs} annunci...\n")
+        
+        for idx, job in enumerate(all_jobs, start=1):
+            remaining = total_eval_jobs - idx
             
-        for job in all_jobs:
             if job["url"] in already_evaluated_urls:
                 # Già valutato in una precedente run con lo stesso identico URL
                 continue
@@ -197,10 +199,12 @@ async def main():
             job_hash = compute_content_hash(job["company"], job["title"], job["description"])
             source = job.get("source", "LinkedIn")
             
+            print(f"\n[{idx}/{total_eval_jobs} | {remaining} rimanenti] Analisi: '{job['title']}' @ '{job['company']}' ({source})")
+            
             # Controllo 1: Hash SHA-256 esatto (già presente nello storico)
             if job_hash in already_evaluated_hashes:
                 prev = already_evaluated_hashes[job_hash]
-                print(f"[REPOST RILEVATO] [{source}] '{job['title']} @ {job['company']}' è la ripubblicazione con nuovo ID di un annuncio già valutato (Esito: {prev['Match']}, Tag: {prev.get('Rejection_Tag', '')}). Copia verdetto a 0 token!")
+                print(f"    ⚡ [REPOST RILEVATO DA FINGERPRINT] Ripubblicazione con nuovo ID (Esito: {prev['Match']}, Tag: {prev.get('Rejection_Tag', '')}). Copia verdetto a 0 token!")
                 
                 writer.writerow({
                     "Data": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
