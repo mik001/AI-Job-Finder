@@ -25,6 +25,11 @@ class JobEvaluation(BaseModel):
     reasoning: str = Field(description="Una breve spiegazione del perché l'annuncio è stato scartato o approvato.")
     rejection_tag: Optional[RejectionReason] = Field(description="Se is_match=False, scegli obbligatoriamente il motivo di scarto principale dall'Enum. Se is_match=True, usa null.", default=None)
 
+class DuplicateCheck(BaseModel):
+    is_same_job: bool = Field(description="True se i due annunci descrivono la stessa identica posizione lavorativa (anche se con formattazione, footer o layout differenti). False se sono due ruoli o sedi distinte.")
+    confidence: int = Field(description="Punteggio di confidenza da 0 a 100 sulla decisione.")
+    reason: str = Field(description="Breve motivazione del perché sono o non sono lo stesso annuncio.")
+
 class JobEvaluator:
     def __init__(self, user_profile: str):
         """
@@ -42,6 +47,7 @@ class JobEvaluator:
             max_retries=3,
             max_tokens=4000
         )
+        self.duplicate_verifier = self.llm.with_structured_output(DuplicateCheck)
         
         self.structured_llm = self.llm.with_structured_output(JobEvaluation)
         self.blacklist_file = os.path.join("data", "learned_agencies.json")
@@ -129,6 +135,32 @@ class JobEvaluator:
                 print(f"    🧠 [AI-Learned Filter] Nuova agenzia appresa da Gemini: '{company}' aggiunta al database persistente.")
                 
         return result
+
+    def verify_duplicate(self, candidate_title: str, candidate_company: str, candidate_desc: str, existing_title: str, existing_company: str, existing_desc: str) -> DuplicateCheck:
+        """Verifica con Gemini se due annunci con azienda/titolo simili sono la stessa identica offerta."""
+        prompt = f"""
+        Sei un esperto analista di annunci di lavoro.
+        Determina se questi due annunci pubblicati sul web rappresentano LA STESSA IDENTICA POSIZIONE lavorativa (anche se con formattazione, footer o piattaforme diverse), oppure se si tratta di due offerte/ruoli distinti.
+        
+        Ignora differenze superficiali (es. footer "Candidati su LinkedIn/Indeed", link, o formattazione dei paragrafi).
+        
+        ANNUNCIO GIA' VALUTATO:
+        Titolo: {existing_title}
+        Azienda: {existing_company}
+        Testo:
+        {existing_desc[:2000]}
+        
+        NUOVO ANNUNCIO DA CONFRONTARE:
+        Titolo: {candidate_title}
+        Azienda: {candidate_company}
+        Testo:
+        {candidate_desc[:2000]}
+        """
+        try:
+            return self.duplicate_verifier.invoke(prompt)
+        except Exception as e:
+            print(f"[-] Errore verifica duplicato con Gemini: {e}")
+            return DuplicateCheck(is_same_job=False, confidence=0, reason="Errore durante la verifica.")
 
 if __name__ == "__main__":
     test_profile = "Cerco lavoro come Software Engineer in Python. Solo lavoro Full Remote. Mi interessa lavorare con AI e backend. RAL desiderata: almeno 40k."

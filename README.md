@@ -298,12 +298,14 @@ Il modulo [src/notifier/whatsapp_notifier.py](file:///c:/Users/borgi/projects/AI
 
 Ogni annuncio analizzato viene registrato e memorizzato in tempo reale in [history.csv](file:///c:/Users/borgi/projects/AI-Job-Finder/history.csv), garantendo piena trasparenza sulle decisioni dell'AI e persistenza dello stato:
 
-### Rilevamento Repost con Content Fingerprinting (SHA-256)
-- **Il Problema**: Quando un'azienda ripubblica lo stesso annuncio a distanza di settimane, LinkedIn e Indeed generano un **nuovo ID numerico**, rendendo inefficace il solo controllo per URL.
-- **La Soluzione Ingegneristica**: Il sistema calcola un'impronta digitale crittografica normalizzata:
-  $$\text{Content\_Hash} = \mathbf{SHA256}(\text{norm}(\text{Azienda}) + \text{norm}(\text{Titolo}) + \text{norm}(\text{Descrizione}))$$
-- Se un annuncio con un nuovo URL ha un `Content_Hash` già presente nello storico:
-  $$\implies \mathbf{REPOST\ RILEVATO!\ Copia\ automatica\ del\ verdetto\ a\ 0\ token!}$$
+### Rilevamento Repost & Deduplicazione Cross-Platform a Due Stadi (Two-Stage Pipeline)
+1. **Livello 1: SHA-256 Esatto (Stesso identico annuncio)**:
+   - Calcola l'hash `Content_Hash = SHA256(norm(Azienda) + norm(Titolo) + norm(Descrizione))`. Se coincide, copia il verdetto a 0 token.
+2. **Livello 2: Fuzzy Token Matching Locale (Stage 1 - Zero Cost)**:
+   - Riconosce variazioni nominali dell'azienda (es. *"Magna International"* vs *"Magna Powertrain"* o *"Bending Spoons"* vs *"Bending Spoons S.p.A."*) e titoli con varianti (es. *"HR Specialist"* vs *"HR Specialist Talent Acquisition"*).
+   - Se azienda, titolo e vocabolario della descrizione (Jaccard Index $\ge 35\%$) convergono, il job viene marcato come **Candidato Duplicato Cross-Platform**.
+3. **Livello 3: Verifica Flash con Gemini (Stage 2 - Ultra-Low Cost)**:
+   - Gemini riceve una query binaria lampo per confermare se i due testi descrivono la stessa posizione. Se confermato (`confidence >= 70%`), copia il risultato precedente senza rifare la valutazione complessa dei requisiti!
 
 | Data | Piattaforma | Titolo | Azienda | Match | Rejection_Tag | Stato_UI | Content_Hash | Reasoning | URL |
 | :--- | :--- | :--- | :--- | :---: | :---: | :---: | :--- | :--- | :--- |

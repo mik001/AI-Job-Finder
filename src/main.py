@@ -26,45 +26,71 @@ ALTRE REGOLE MORBIDE (NON SCARTARE):
 import hashlib
 import re
 
-def clean_company_name(name: str) -> str:
-    """Normalizza il nome azienda eliminando suffissi societari e caratteri spuri."""
-    name = name.lower().strip()
-    if "(" in name:
-        name = name.split("(")[0].strip()
-    for suffix in [" s.p.a.", " spa", " s.r.l.", " srl", " s.a.s.", " sas", " inc.", " ltd", " gmbh"]:
-        if name.endswith(suffix):
-            name = name[:-len(suffix)].strip()
-    return re.sub(r'[^a-z0-9]', '', name)
-
-def clean_job_title(title: str) -> str:
-    """Normalizza il titolo dell'annuncio rimuovendo gender tags (m/f) e punteggiatura."""
-    title = title.lower().strip()
-    # Rimuove gender tags comuni come (m/f), (m/f/d), (f/m), - m/f, ecc.
-    title = re.sub(r'\((m|f|d|u)[/\\](m|f|d|u)(?:[/\\](m|f|d|u))?\)', '', title)
-    title = re.sub(r'[-–|]\s*(m|f|d)[/\\](m|f|d)', '', title)
-    return re.sub(r'[^a-z0-9]', '', title)
-
-def clean_description_body(text: str) -> str:
-    """Estrae i lemmi centrali del testo eliminando boilerplate di piattaforma e privacy."""
-    text = text.lower()
-    boilerplates = [
-        "indeed", "linkedin", "easy apply", "candidati ora", "candidati facilmente",
-        "trattamento dei dati personali", "informativa privacy", "d.lgs 196/2003", "gdpr",
-        "pari opportunità", "l. 903/77", "l. 125/91", "tutti i generi", "legge 68/99"
-    ]
-    for bp in boilerplates:
-        text = text.replace(bp, " ")
-    words = re.findall(r'\b[a-z]{3,}\b', text)
-    # Prendiamo i primi 200 lemmi significativi che costituiscono l'essenza dell'annuncio
-    return " ".join(words[:200])
-
 def compute_content_hash(company: str, title: str, description: str) -> str:
-    """Calcola un'impronta digitale SHA-256 cross-platform resistente a formattazioni e footer."""
-    c_comp = clean_company_name(company)
-    c_title = clean_job_title(title)
-    c_body = clean_description_body(description)
-    payload = f"{c_comp}_{c_title}_{c_body}"
+    """Calcola un'impronta digitale SHA-256 univoca basata su azienda, titolo e testo dell'annuncio."""
+    clean_company = re.sub(r'\W+', '', company.lower())
+    clean_title = re.sub(r'\W+', '', title.lower())
+    clean_desc = re.sub(r'\s+', ' ', description.lower().strip())[:1500]
+    payload = f"{clean_company}_{clean_title}_{clean_desc}"
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+def normalize_tokens(text: str) -> set:
+    """Estrae le parole significative escludendo punteggiatura e suffissi legali/generici."""
+    if "(" in text:
+        text = text.split("(")[0]
+    cleaned = re.sub(r'[^\w\s]', ' ', text.lower())
+    ignored = {"spa", "srl", "sas", "snc", "inc", "ltd", "group", "gruppo", "italia", "italy", "per", "del", "della", "dei", "con", "and", "the"}
+    return set(w for w in cleaned.split() if len(w) > 2 and w not in ignored)
+
+def are_companies_similar(comp_a: str, comp_b: str) -> bool:
+    """Verifica se due nomi aziendali sono simili (es. 'Magna International' vs 'Magna Powertrain')."""
+    words_a = normalize_tokens(comp_a)
+    words_b = normalize_tokens(comp_b)
+    if not words_a or not words_b:
+        return False
+    # Condividono almeno una parola chiave distintiva
+    if words_a & words_b:
+        return True
+    clean_a = "".join(sorted(words_a))
+    clean_b = "".join(sorted(words_b))
+    return clean_a in clean_b or clean_b in clean_a
+
+def are_titles_similar(tit_a: str, tit_b: str) -> bool:
+    """Verifica se due titoli condividono parole chiave essenziali di ruolo (es. 'HR Specialist' vs 'HR Specialist Talent Acquisition')."""
+    words_a = normalize_tokens(tit_a)
+    words_b = normalize_tokens(tit_b)
+    if not words_a or not words_b:
+        return False
+    # Devono condividere almeno una parola chiave di ruolo
+    return len(words_a & words_b) > 0
+
+def find_fuzzy_candidate(job: dict, evaluated_records: list) -> dict:
+    """
+    Filtro Euristico Locale (Stage 1): Rileva candidati duplicati cross-platform
+    anche quando il nome dell'azienda o il titolo presentano leggere variazioni di dicitura.
+    """
+    for rec in evaluated_records:
+        rec_comp = rec.get("Azienda", "")
+        if not are_companies_similar(job["company"], rec_comp):
+            continue
+            
+        rec_tit = rec.get("Titolo", "")
+        if not are_titles_similar(job["title"], rec_tit):
+            continue
+            
+        # Sia azienda che titolo sono compatibili: calcoliamo similarità testo
+        job_desc_words = set(w for w in re.sub(r'[^\w\s]', '', job["description"].lower()).split() if len(w) > 3)
+        rec_desc = rec.get("Description", "")
+        if rec_desc:
+            rec_desc_words = set(w for w in re.sub(r'[^\w\s]', '', rec_desc.lower()).split() if len(w) > 3)
+            intersection = len(job_desc_words & rec_desc_words)
+            union = len(job_desc_words | rec_desc_words)
+            if union > 0 and (intersection / union) >= 0.35:
+                return rec
+        else:
+            return rec
+            
+    return None
 
 async def main():
     print("\n" + "="*50)
@@ -139,12 +165,14 @@ async def main():
     file_exists = os.path.isfile(history_file)
     already_evaluated_urls = set()
     already_evaluated_hashes = {}
+    evaluated_records = []
     
     if file_exists:
         try:
             with open(history_file, mode="r", encoding="utf-8") as existing_f:
                 reader = csv.DictReader(existing_f)
                 for row in reader:
+                    evaluated_records.append(row)
                     if row.get("URL"):
                         already_evaluated_urls.add(row["URL"])
                     if row.get("Content_Hash"):
@@ -169,7 +197,7 @@ async def main():
             job_hash = compute_content_hash(job["company"], job["title"], job["description"])
             source = job.get("source", "LinkedIn")
             
-            # Controllo Repost: se il fingerprint SHA-256 esiste già nello storico
+            # Controllo 1: Hash SHA-256 esatto (già presente nello storico)
             if job_hash in already_evaluated_hashes:
                 prev = already_evaluated_hashes[job_hash]
                 print(f"[REPOST RILEVATO] [{source}] '{job['title']} @ {job['company']}' è la ripubblicazione con nuovo ID di un annuncio già valutato (Esito: {prev['Match']}, Tag: {prev.get('Rejection_Tag', '')}). Copia verdetto a 0 token!")
@@ -189,8 +217,42 @@ async def main():
                 csvfile.flush()
                 continue
                 
+            # Controllo 2: Filtro Fuzzy Cross-Platform (Stage 1) + Conferma Gemini (Stage 2)
+            fuzzy_cand = find_fuzzy_candidate(job, evaluated_records)
+            if fuzzy_cand:
+                cand_source = fuzzy_cand.get("Piattaforma", "Altra")
+                print(f"[*] [Fuzzy Filter] Rilevato probabile duplicato cross-platform ({source} vs {cand_source}): '{job['title']} @ {job['company']}'. Chiedo conferma lampo a Gemini...")
+                
+                check = evaluator.verify_duplicate(
+                    candidate_title=job["title"],
+                    candidate_company=job["company"],
+                    candidate_desc=job["description"],
+                    existing_title=fuzzy_cand.get("Titolo", ""),
+                    existing_company=fuzzy_cand.get("Azienda", ""),
+                    existing_desc=fuzzy_cand.get("Description", fuzzy_cand.get("Reasoning", ""))
+                )
+                
+                if check.is_same_job and check.confidence >= 70:
+                    print(f"    ✅ [Gemini: DUPLICATO CONFERMATO ({check.confidence}%)] {check.reason}. Copia esito precedente a 0 token di valutazione completa!")
+                    writer.writerow({
+                        "Data": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "Piattaforma": source,
+                        "Titolo": job["title"],
+                        "Azienda": job["company"],
+                        "Match": fuzzy_cand.get("Match", "NO"),
+                        "Rejection_Tag": fuzzy_cand.get("Rejection_Tag", ""),
+                        "Stato_UI": "NON_LETTO",
+                        "Content_Hash": job_hash,
+                        "Reasoning": f"[DUPLICATO CROSS-PLATFORM CONFERMATO DA GEMINI] {fuzzy_cand.get('Reasoning', '')}",
+                        "URL": job["url"]
+                    })
+                    csvfile.flush()
+                    continue
+                else:
+                    print(f"    ℹ️ [Gemini: RUOLI DISTINTI ({check.confidence}%)] {check.reason}. Procedo con la valutazione completa.")
+            
             try:
-                # 3. Valutazione AI
+                # 3. Valutazione AI Completa
                 evaluation = evaluator.evaluate(
                     job_title=job["title"],
                     company=job["company"],
@@ -216,6 +278,20 @@ async def main():
                     "URL": job["url"]
                 })
                 csvfile.flush()
+                
+                # Aggiungiamo ai record valutati in memoria per permettere il cross-matching in tempo reale
+                evaluated_records.append({
+                    "Titolo": job["title"],
+                    "Azienda": job["company"],
+                    "Match": "SI" if evaluation.is_match else "NO",
+                    "Rejection_Tag": evaluation.rejection_tag.value if (not evaluation.is_match and evaluation.rejection_tag) else "",
+                    "Stato_UI": "NON_LETTO",
+                    "Content_Hash": job_hash,
+                    "Description": job["description"],
+                    "Reasoning": evaluation.reasoning,
+                    "URL": job["url"],
+                    "Piattaforma": source
+                })
                 
                 # Se è un match, cerchiamo il recruiter e notifichiamo
                 if evaluation.is_match:
