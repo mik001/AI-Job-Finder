@@ -159,9 +159,12 @@ async def main():
     await scraper.init_browser()
     
     for sq in search_queries:
-        jobs = await scraper.run(keywords=sq["keywords"], location=sq["location"], max_results=100, seen_urls=seen_urls)
-        for j in jobs:
-            all_jobs.append(j)
+        try:
+            jobs = await scraper.run(keywords=sq["keywords"], location=sq["location"], max_results=100, seen_urls=seen_urls)
+            for j in jobs:
+                all_jobs.append(j)
+        except Exception as e:
+            print(f"[-] Errore query LinkedIn '{sq['keywords']}' in '{sq['location']}': {e}. Proseguo con le altre query.")
             
     await scraper.close_browser()
     print(f"[+] LinkedIn completato: {len(all_jobs)} annunci unici raccolti finora.")
@@ -172,9 +175,12 @@ async def main():
     await indeed_scraper.init_browser()
     
     for sq in search_queries:
-        indeed_jobs = await indeed_scraper.run(keywords=sq["keywords"], location=sq["location"], max_results=50, seen_urls=seen_urls)
-        for j in indeed_jobs:
-            all_jobs.append(j)
+        try:
+            indeed_jobs = await indeed_scraper.run(keywords=sq["keywords"], location=sq["location"], max_results=50, seen_urls=seen_urls)
+            for j in indeed_jobs:
+                all_jobs.append(j)
+        except Exception as e:
+            print(f"[-] Errore query Indeed '{sq['keywords']}' in '{sq['location']}': {e}. Proseguo con le altre query.")
             
     await indeed_scraper.close_browser()
     print(f"[+] Scraping terminato! Totale aggregato (LinkedIn + Indeed): {len(all_jobs)} annunci unici.")

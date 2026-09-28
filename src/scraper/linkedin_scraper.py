@@ -17,12 +17,41 @@ class LinkedInScraper:
         self.p = await async_playwright().start()
         self.context = await self.auth_manager.get_context(self.p, headless=True, silent=True)
         self.page = await self.context.new_page()
+        self.desc_page = await self.context.new_page()
 
     async def close_browser(self):
+        try:
+            if self.desc_page and not self.desc_page.is_closed():
+                await self.desc_page.close()
+        except Exception:
+            pass
+        try:
+            if self.page and not self.page.is_closed():
+                await self.page.close()
+        except Exception:
+            pass
         if self.context:
             await self.context.close()
         if self.p:
             await self.p.stop()
+
+    async def _safe_goto(self, target_page: Page, url: str, retries: int = 3) -> bool:
+        """Navigazione resiliente contro errori transitori di frame detached o timeout."""
+        for attempt in range(1, retries + 1):
+            try:
+                if target_page.is_closed():
+                    return False
+                await target_page.goto(url, wait_until="domcontentloaded", timeout=25000)
+                return True
+            except Exception as e:
+                err_msg = str(e).lower()
+                if "detached" in err_msg or "navigation" in err_msg or "timeout" in err_msg:
+                    print(f"[-] Avviso navigazione a {url}: {e} (ritento {attempt}/{retries})...")
+                    await asyncio.sleep(2)
+                else:
+                    print(f"[-] Errore goto {url}: {e}")
+                    return False
+        return False
 
     async def _parse_job_card(self, job_element) -> dict:
         """Estrae i dati di base da una card di annuncio."""
@@ -63,24 +92,29 @@ class LinkedInScraper:
             print(f"[-] Errore parsing card: {e}")
             return None
 
-    async def scrape_job_description(self, page: Page, job_url: str) -> str:
-        """Visita la pagina del lavoro ed estrae l'intera descrizione."""
+    async def scrape_job_description(self, job_url: str) -> str:
+        """Visita la pagina del lavoro su tab dedicato per non disturbare la pagina di ricerca."""
         print(f"[*] Estrazione descrizione da: {job_url}")
         try:
-            await page.goto(job_url, wait_until="domcontentloaded")
+            if not self.desc_page or self.desc_page.is_closed():
+                self.desc_page = await self.context.new_page()
+                
+            success = await self._safe_goto(self.desc_page, job_url, retries=2)
+            if not success:
+                return "Descrizione non caricata."
             
-            # Attesa più breve per velocizzare
+            # Attesa selettori descrizione
             try:
-                await page.wait_for_selector("#job-details, article, .jobs-description__content, [id*='AboutTheJob']", timeout=2500)
-            except:
+                await self.desc_page.wait_for_selector("#job-details, article, .jobs-description__content, [id*='AboutTheJob']", timeout=2500)
+            except Exception:
                 pass 
             
             try:
-                await page.locator("button.jobs-description__footer-button").click(timeout=1000)
-            except:
+                await self.desc_page.locator("button.jobs-description__footer-button").click(timeout=1000)
+            except Exception:
                 pass
                 
-            html = await page.content()
+            html = await self.desc_page.content()
             soup = BeautifulSoup(html, "html.parser")
             
             desc_div = soup.find("div", id="job-details") or \
@@ -113,7 +147,11 @@ class LinkedInScraper:
                 start=start
             )
             
-            await page.goto(search_url, wait_until="domcontentloaded")
+            success = await self._safe_goto(page, search_url, retries=3)
+            if not success:
+                print(f"[-] Impossibile caricare pagina di ricerca {search_url}, passo alla successiva.")
+                break
+                
             await page.wait_for_timeout(3000)  # Pausa umana
             
             # Scorriamo l'effettivo pannello scrollabile per attivare il lazy loading di tutte le 25 card
@@ -159,10 +197,10 @@ class LinkedInScraper:
                     
                     seen_urls.add(job_data["url"])
                     
-                    desc = await self.scrape_job_description(page, job_data["url"])
+                    desc = await self.scrape_job_description(job_data["url"])
                     job_data["description"] = desc
                     jobs_found.append(job_data)
-                    await page.wait_for_timeout(1500)
+                    await page.wait_for_timeout(1000)
                     
                     if len(jobs_found) >= max_results:
                         break
