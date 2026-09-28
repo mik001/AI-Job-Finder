@@ -296,13 +296,20 @@ Il modulo [src/notifier/whatsapp_notifier.py](file:///c:/Users/borgi/projects/AI
 
 ## 📊 Storico & Data Audit (`history.csv`)
 
-Ogni annuncio analizzato da Gemini viene registrato in tempo reale in [history.csv](file:///c:/Users/borgi/projects/AI-Job-Finder/history.csv), garantendo piena trasparenza sulle decisioni dell'AI:
+Ogni annuncio analizzato viene registrato e memorizzato in tempo reale in [history.csv](file:///c:/Users/borgi/projects/AI-Job-Finder/history.csv), garantendo piena trasparenza sulle decisioni dell'AI e persistenza dello stato:
 
-| Data | Titolo | Azienda | Match | Rejection_Tag | Reasoning | URL |
-| :--- | :--- | :--- | :---: | :---: | :--- | :--- |
-| `2026-09-28 18:20:11` | *HR Specialist* | *Bending Spoons* | **SI** | *(null)* | Azienda di prodotto, full remote, ruolo in linea... | `https://...` |
-| `2026-09-28 18:22:45` | *Recruiter* | *The Adecco Group* | **NO** | `AGENZIA` | Società di somministrazione categoricamente esclusa... | `https://...` |
-| `2026-09-28 18:24:02` | *HR Generalist* | *Manifattura SPA* | **NO** | `LOCATION_ERRATA` | Richiede presenza 5 giorni su 5 a Torino... | `https://...` |
+### Rilevamento Repost con Content Fingerprinting (SHA-256)
+- **Il Problema**: Quando un'azienda ripubblica lo stesso annuncio a distanza di settimane, LinkedIn e Indeed generano un **nuovo ID numerico**, rendendo inefficace il solo controllo per URL.
+- **La Soluzione Ingegneristica**: Il sistema calcola un'impronta digitale crittografica normalizzata:
+  $$\text{Content\_Hash} = \mathbf{SHA256}(\text{norm}(\text{Azienda}) + \text{norm}(\text{Titolo}) + \text{norm}(\text{Descrizione}))$$
+- Se un annuncio con un nuovo URL ha un `Content_Hash` già presente nello storico:
+  $$\implies \mathbf{REPOST\ RILEVATO!\ Copia\ automatica\ del\ verdetto\ a\ 0\ token!}$$
+
+| Data | Piattaforma | Titolo | Azienda | Match | Rejection_Tag | Stato_UI | Content_Hash | Reasoning | URL |
+| :--- | :--- | :--- | :--- | :---: | :---: | :---: | :--- | :--- | :--- |
+| `2026-09-28 18:20:11` | `LinkedIn` | *HR Specialist* | *Bending Spoons* | **SI** | *(null)* | `NON_LETTO` | `a3f5...` | Azienda di prodotto, full remote, ruolo in linea... | `https://...` |
+| `2026-09-28 18:22:45` | `LinkedIn` | *Recruiter* | *The Adecco Group* | **NO** | `AGENZIA` | `NON_LETTO` | `8c12...` | Società di somministrazione categoricamente esclusa... | `https://...` |
+| `2026-09-28 18:24:02` | `Indeed` | *HR Generalist* | *Manifattura SPA* | **NO** | `LOCATION_ERRATA` | `NON_LETTO` | `f94b...` | Richiede presenza 5 giorni su 5 a Torino... | `https://...` |
 
 ## 🖥️ Roadmap & Specifiche Interfaccia Utente (UI)
 

@@ -23,6 +23,17 @@ ALTRE REGOLE MORBIDE (NON SCARTARE):
 - La seniority troppo alta (es. Senior/Manager), troppo bassa (es. Stage/Junior) o la modalità Freelance/P.IVA NON DEVONO essere un motivo di scarto. Includile nei 'cons' (warning) ma mantieni is_match=True se l'annuncio rispetta la sede e la natura del ruolo aziendale.
 """
 
+import hashlib
+import re
+
+def compute_content_hash(company: str, title: str, description: str) -> str:
+    """Calcola un'impronta digitale SHA-256 univoca basata su azienda, titolo e testo dell'annuncio."""
+    clean_company = re.sub(r'\W+', '', company.lower())
+    clean_title = re.sub(r'\W+', '', title.lower())
+    clean_desc = re.sub(r'\s+', ' ', description.lower().strip())[:1500]
+    payload = f"{clean_company}_{clean_title}_{clean_desc}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
 async def main():
     print("\n" + "="*50)
     print("🤖 AVVIO AI JOB FINDER 🤖")
@@ -95,6 +106,7 @@ async def main():
     history_file = "history.csv"
     file_exists = os.path.isfile(history_file)
     already_evaluated_urls = set()
+    already_evaluated_hashes = {}
     
     if file_exists:
         try:
@@ -103,13 +115,15 @@ async def main():
                 for row in reader:
                     if row.get("URL"):
                         already_evaluated_urls.add(row["URL"])
-            if already_evaluated_urls:
-                print(f"[*] Caricati {len(already_evaluated_urls)} annunci già storicizzati in passato. Verranno saltati per risparmiare chiamate AI.")
+                    if row.get("Content_Hash"):
+                        already_evaluated_hashes[row["Content_Hash"]] = row
+            if already_evaluated_urls or already_evaluated_hashes:
+                print(f"[*] Caricati {len(already_evaluated_urls)} URL e {len(already_evaluated_hashes)} fingerprint storici. Verranno saltati per risparmiare chiamate AI.")
         except Exception as e:
             print(f"[-] Avviso lettura storico precedente: {e}")
     
     with open(history_file, mode="a", newline="", encoding="utf-8") as csvfile:
-        fieldnames = ["Data", "Piattaforma", "Titolo", "Azienda", "Match", "Rejection_Tag", "Stato_UI", "Reasoning", "URL"]
+        fieldnames = ["Data", "Piattaforma", "Titolo", "Azienda", "Match", "Rejection_Tag", "Stato_UI", "Content_Hash", "Reasoning", "URL"]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         
         if not file_exists:
@@ -117,7 +131,30 @@ async def main():
             
         for job in all_jobs:
             if job["url"] in already_evaluated_urls:
-                # Già valutato in una precedente run, non consumiamo chiamate AI
+                # Già valutato in una precedente run con lo stesso identico URL
+                continue
+                
+            job_hash = compute_content_hash(job["company"], job["title"], job["description"])
+            source = job.get("source", "LinkedIn")
+            
+            # Controllo Repost: se il fingerprint SHA-256 esiste già nello storico
+            if job_hash in already_evaluated_hashes:
+                prev = already_evaluated_hashes[job_hash]
+                print(f"[REPOST RILEVATO] [{source}] '{job['title']} @ {job['company']}' è la ripubblicazione con nuovo ID di un annuncio già valutato (Esito: {prev['Match']}, Tag: {prev.get('Rejection_Tag', '')}). Copia verdetto a 0 token!")
+                
+                writer.writerow({
+                    "Data": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "Piattaforma": source,
+                    "Titolo": job["title"],
+                    "Azienda": job["company"],
+                    "Match": prev.get("Match", "NO"),
+                    "Rejection_Tag": prev.get("Rejection_Tag", ""),
+                    "Stato_UI": "NON_LETTO",
+                    "Content_Hash": job_hash,
+                    "Reasoning": f"[REPOST RILEVATO DA FINGERPRINT] {prev.get('Reasoning', '')}",
+                    "URL": job["url"]
+                })
+                csvfile.flush()
                 continue
                 
             try:
@@ -128,13 +165,12 @@ async def main():
                     job_description=job["description"]
                 )
                 
-                source = job.get("source", "LinkedIn")
                 print(f"[{'MATCH' if evaluation.is_match else 'SCARTATO'}] [{source}] {job['title']} @ {job['company']}")
                 if not evaluation.is_match and evaluation.rejection_tag:
                     print(f"    Tag Rifiuto: {evaluation.rejection_tag.value}")
                 print(f"    Reasoning: {evaluation.reasoning}\n")
                 
-                # Salvataggio nello storico (Stato_UI default su NON_LETTO affinché l'utente possa visualizzarlo e scartarlo dalla UI)
+                # Salvataggio nello storico con Content_Hash per bloccare future ripubblicazioni
                 writer.writerow({
                     "Data": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "Piattaforma": source,
@@ -143,9 +179,11 @@ async def main():
                     "Match": "SI" if evaluation.is_match else "NO",
                     "Rejection_Tag": evaluation.rejection_tag.value if (not evaluation.is_match and evaluation.rejection_tag) else "",
                     "Stato_UI": "NON_LETTO",
+                    "Content_Hash": job_hash,
                     "Reasoning": evaluation.reasoning,
                     "URL": job["url"]
                 })
+                csvfile.flush()
                 
                 # Se è un match, cerchiamo il recruiter e notifichiamo
                 if evaluation.is_match:
