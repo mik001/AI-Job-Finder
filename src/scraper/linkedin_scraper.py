@@ -1,0 +1,184 @@
+import asyncio
+from playwright.async_api import async_playwright, Page
+from src.scraper.auth_manager import AuthManager
+from bs4 import BeautifulSoup
+
+class LinkedInScraper:
+    def __init__(self):
+        self.auth_manager = AuthManager("linkedin")
+        self.base_url = "https://www.linkedin.com/jobs/search/?keywords={keywords}&location={location}&f_TPR=r86400&sortBy=DD&start={start}"
+        self.p = None
+        self.context = None
+        self.page = None
+
+    async def init_browser(self):
+        from playwright.async_api import async_playwright
+        self.p = await async_playwright().start()
+        self.context = await self.auth_manager.get_context(self.p, headless=True, silent=True)
+        self.page = await self.context.new_page()
+
+    async def close_browser(self):
+        if self.context:
+            await self.context.close()
+        if self.p:
+            await self.p.stop()
+
+    async def _parse_job_card(self, job_element) -> dict:
+        """Estrae i dati di base da una card di annuncio."""
+        try:
+            # Cerca tutti i link nella card per trovare quello dell'annuncio
+            a_tags = job_element.find_all("a", href=True)
+            link = ""
+            title = ""
+            for a in a_tags:
+                if "/jobs/view/" in a["href"]:
+                    link = a["href"]
+                    if a.text.strip():
+                        title = a.text.strip()
+                    break
+            
+            # Se non ha trovato il titolo nel tag a, cerca negli h3, div o strong
+            if not title:
+                title_el = job_element.find("strong") or job_element.find("div", class_=lambda x: x and "title" in x)
+                title = title_el.text.strip() if title_el else "Titolo Sconosciuto"
+                
+            # Azienda
+            company_el = job_element.find("div", class_="artdeco-entity-lockup__subtitle") or \
+                         job_element.find("span", class_="job-card-container__primary-description") or \
+                         job_element.find("a", class_=lambda x: x and "company" in x)
+            company = company_el.text.strip() if company_el else "Azienda Sconosciuta"
+            
+            if link and "?" in link:
+                link = link.split("?")[0]
+            if link and not link.startswith("http"):
+                link = "https://www.linkedin.com" + link
+                
+            return {
+                "title": title.split("\n")[0].strip(), # Pulisci a-capo spuri
+                "company": company.split("\n")[0].strip(),
+                "url": link
+            }
+        except Exception as e:
+            print(f"[-] Errore parsing card: {e}")
+            return None
+
+    async def scrape_job_description(self, page: Page, job_url: str) -> str:
+        """Visita la pagina del lavoro ed estrae l'intera descrizione."""
+        print(f"[*] Estrazione descrizione da: {job_url}")
+        try:
+            await page.goto(job_url, wait_until="domcontentloaded")
+            
+            # Attesa più breve per velocizzare
+            try:
+                await page.wait_for_selector("#job-details, article, .jobs-description__content, [id*='AboutTheJob']", timeout=2500)
+            except:
+                pass 
+            
+            try:
+                await page.locator("button.jobs-description__footer-button").click(timeout=1000)
+            except:
+                pass
+                
+            html = await page.content()
+            soup = BeautifulSoup(html, "html.parser")
+            
+            desc_div = soup.find("div", id="job-details") or \
+                       soup.find(id=lambda x: x and "AboutTheJob" in x) or \
+                       soup.find("article") or \
+                       soup.find("div", class_="jobs-description__content") or \
+                       soup.find("div", class_="description__text")
+            
+            if desc_div:
+                return desc_div.get_text(separator="\n", strip=True)
+            return "Descrizione non trovata."
+        except Exception as e:
+            print(f"[-] Impossibile caricare descrizione per {job_url}: {e}")
+            return ""
+
+    async def run(self, keywords: str, location: str, max_results: int = 100, seen_urls: set = None):
+        if seen_urls is None:
+            seen_urls = set()
+            
+        print(f"[*] Avvio scraping LinkedIn per '{keywords}' in '{location}'...")
+        
+        jobs_found = []
+        page = self.page
+        
+        # Paginazione (carichiamo fino a 4 pagine, ovvero 100 annunci)
+        for start in range(0, max_results, 25):
+            search_url = self.base_url.format(
+                keywords=keywords.replace(" ", "%20"),
+                location=location.replace(" ", "%20"),
+                start=start
+            )
+            
+            await page.goto(search_url, wait_until="domcontentloaded")
+            await page.wait_for_timeout(3000)  # Pausa umana
+            
+            # Scorriamo l'effettivo pannello scrollabile per attivare il lazy loading di tutte le 25 card
+            await page.evaluate("""
+                async () => {
+                    const listContainer = document.querySelector('.scaffold-layout__list') || document.body;
+                    const scrollable = Array.from(listContainer.querySelectorAll('*')).find(el => {
+                        const s = window.getComputedStyle(el);
+                        return (s.overflowY === 'auto' || s.overflowY === 'scroll') && el.scrollHeight > el.clientHeight;
+                    });
+                    
+                    if (scrollable) {
+                        for (let i = 0; i < 5; i++) {
+                            scrollable.scrollBy(0, 800);
+                            await new Promise(r => setTimeout(r, 500));
+                        }
+                    } else {
+                        for (let i = 0; i < 5; i++) {
+                            window.scrollBy(0, 800);
+                            await new Promise(r => setTimeout(r, 500));
+                        }
+                    }
+                }
+            """)
+            await page.wait_for_timeout(1000)
+            
+            html = await page.content()
+            soup = BeautifulSoup(html, "html.parser")
+            
+            # Cerca le card degli annunci
+            job_cards = soup.find_all("div", class_="job-card-container") or soup.find_all("div", class_="base-card") or soup.find_all("li", class_="jobs-search-results__list-item")
+            
+            if not job_cards:
+                break # Nessun annuncio in questa pagina, abbiamo finito
+                
+            print(f"[+] Pagina {start//25 + 1}: Trovate {len(job_cards)} offerte.")
+            
+            for card in job_cards:
+                job_data = await self._parse_job_card(card)
+                if job_data and job_data["url"]:
+                    if job_data["url"] in seen_urls:
+                        continue # Salta duplicati prima di caricare la pagina pesante
+                    
+                    seen_urls.add(job_data["url"])
+                    
+                    desc = await self.scrape_job_description(page, job_data["url"])
+                    job_data["description"] = desc
+                    jobs_found.append(job_data)
+                    await page.wait_for_timeout(1500)
+                    
+                    if len(jobs_found) >= max_results:
+                        break
+                        
+            if len(jobs_found) >= max_results:
+                break
+        
+        return jobs_found
+
+if __name__ == "__main__":
+    # Test script
+    async def test():
+        scraper = LinkedInScraper()
+        jobs = await scraper.run("Python Developer", "Italy", max_results=1)
+        for j in jobs:
+            print(f"\n--- {j['title']} @ {j['company']} ---")
+            print(f"Link: {j['url']}")
+            print(f"Descrizione (prime 100 char): {j['description'][:100]}...")
+            
+    asyncio.run(test())

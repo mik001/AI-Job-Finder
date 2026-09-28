@@ -1,0 +1,54 @@
+# Environment and secrets
+.env
+*.env
+*.json
+!requirements.txt
+
+# Session cookies and state
+linkedin_session.json
+data/
+*.png
+*.jpg
+*.jpeg
+
+# Debugging artifacts and HTML dumps
+*.html
+history.csv
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv
+venv/
+ENV/
+
+# IDE & OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
