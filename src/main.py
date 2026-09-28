@@ -203,7 +203,7 @@ async def main():
     print(f"\n[*] Fase 2: Inizio valutazione AI di {len(all_jobs)} annunci unici con Gemini 3.8 Flash...\n")
     
     with open(history_file, mode="a", newline="", encoding="utf-8") as csvfile:
-        fieldnames = ["Data", "Piattaforma", "Titolo", "Azienda", "Match", "Rejection_Tag", "Stato_UI", "Content_Hash", "Reasoning", "URL", "Description"]
+        fieldnames = ["Data", "Piattaforma", "Titolo", "Azienda", "Match", "Rejection_Tag", "Stato_UI", "Content_Hash", "Reasoning", "URL", "Description", "Contatti", "Fit_Score"]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         if not file_exists or os.path.getsize(history_file) == 0:
             writer.writeheader()
@@ -293,36 +293,7 @@ async def main():
                     print(f"    Tag Rifiuto: {evaluation.rejection_tag.value}")
                 print(f"    Reasoning: {evaluation.reasoning}\n")
                 
-                # Salvataggio nello storico con Content_Hash per bloccare future ripubblicazioni
-                writer.writerow({
-                    "Data": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "Piattaforma": source,
-                    "Titolo": job["title"],
-                    "Azienda": job["company"],
-                    "Match": "SI" if evaluation.is_match else "NO",
-                    "Rejection_Tag": evaluation.rejection_tag.value if (not evaluation.is_match and evaluation.rejection_tag) else "",
-                    "Stato_UI": "NON_LETTO",
-                    "Content_Hash": job_hash,
-                    "Reasoning": evaluation.reasoning,
-                    "URL": job["url"],
-                    "Description": job.get("description", "")
-                })
-                csvfile.flush()
-                
-                # Aggiungiamo ai record valutati in memoria per permettere il cross-matching in tempo reale
-                evaluated_records.append({
-                    "Titolo": job["title"],
-                    "Azienda": job["company"],
-                    "Match": "SI" if evaluation.is_match else "NO",
-                    "Rejection_Tag": evaluation.rejection_tag.value if (not evaluation.is_match and evaluation.rejection_tag) else "",
-                    "Stato_UI": "NON_LETTO",
-                    "Content_Hash": job_hash,
-                    "Description": job["description"],
-                    "Reasoning": evaluation.reasoning,
-                    "URL": job["url"],
-                    "Piattaforma": source
-                })
-                
+                recruiters_info = ""
                 # Se è un match, cerchiamo il recruiter e notifichiamo
                 if evaluation.is_match:
                     print(f"    --> MATCH TROVATO! Avvio Agente per trovare contatti interni a {job['company']}...\n")
@@ -341,10 +312,9 @@ async def main():
                     for event in contact_hunter_app.stream(initial_state):
                         final_state = event.get(list(event.keys())[0], {})
                     
-                    recruiters_info = ""
                     if final_state and final_state.get("found_recruiters"):
                         for rec in final_state["found_recruiters"]:
-                            recruiters_info += f"- {rec.name} ({rec.linkedin_url}) -> {rec.guessed_email}\n"
+                            recruiters_info += f"- **{rec.name}** ([Profilo LinkedIn]({rec.linkedin_url})) ➔ `{rec.guessed_email}`\n"
                     else:
                         recruiters_info = "Nessun contatto trovato dall'Agente."
                     
@@ -360,6 +330,40 @@ async def main():
                     )
                     
                     print("-"*50)
+
+                # Salvataggio nello storico con Content_Hash, Contatti e Fit_Score
+                writer.writerow({
+                    "Data": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "Piattaforma": source,
+                    "Titolo": job["title"],
+                    "Azienda": job["company"],
+                    "Match": "SI" if evaluation.is_match else "NO",
+                    "Rejection_Tag": evaluation.rejection_tag.value if (not evaluation.is_match and evaluation.rejection_tag) else "",
+                    "Stato_UI": "NON_LETTO",
+                    "Content_Hash": job_hash,
+                    "Reasoning": evaluation.reasoning,
+                    "URL": job["url"],
+                    "Description": job.get("description", ""),
+                    "Contatti": recruiters_info,
+                    "Fit_Score": str(evaluation.fit_score) if evaluation.is_match else ""
+                })
+                csvfile.flush()
+                
+                # Aggiungiamo ai record valutati in memoria per permettere il cross-matching in tempo reale
+                evaluated_records.append({
+                    "Titolo": job["title"],
+                    "Azienda": job["company"],
+                    "Match": "SI" if evaluation.is_match else "NO",
+                    "Rejection_Tag": evaluation.rejection_tag.value if (not evaluation.is_match and evaluation.rejection_tag) else "",
+                    "Stato_UI": "NON_LETTO",
+                    "Content_Hash": job_hash,
+                    "Description": job["description"],
+                    "Reasoning": evaluation.reasoning,
+                    "URL": job["url"],
+                    "Piattaforma": source,
+                    "Contatti": recruiters_info,
+                    "Fit_Score": str(evaluation.fit_score) if evaluation.is_match else ""
+                })
                     
             except Exception as e:
                 print(f"[-] Errore durante il processing di {job['title']}: {e}")
