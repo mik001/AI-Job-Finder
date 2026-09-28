@@ -123,8 +123,35 @@ async def main():
         {"keywords": "Selezione del Personale", "location": "Bari"}
     ]
     
+    # 2. Caricamento Storico Precedente per Deduplicazione a Monte
+    import csv
+    from datetime import datetime
+    
+    history_file = "history.csv"
+    file_exists = os.path.isfile(history_file)
+    already_evaluated_urls = set()
+    already_evaluated_hashes = {}
+    evaluated_records = []
+    
+    if file_exists:
+        try:
+            with open(history_file, mode="r", encoding="utf-8") as existing_f:
+                reader = csv.DictReader(existing_f)
+                for row in reader:
+                    evaluated_records.append(row)
+                    if row.get("URL"):
+                        already_evaluated_urls.add(row["URL"])
+                    if row.get("Content_Hash"):
+                        already_evaluated_hashes[row["Content_Hash"]] = row
+            if already_evaluated_urls or already_evaluated_hashes:
+                print(f"[*] Caricati {len(already_evaluated_urls)} URL e {len(already_evaluated_hashes)} fingerprint storici da {history_file}.")
+                print(f"[*] Gli annunci già esaminati verranno saltati istantaneamente sia in fase di scraping che di valutazione AI!\n")
+        except Exception as e:
+            print(f"[-] Avviso lettura storico precedente: {e}")
+            
     all_jobs = []
-    seen_urls = set()
+    # seen_urls parte già popolato con gli URL storici per non ri-scaricare le pagine di dettaglio
+    seen_urls = set(already_evaluated_urls)
     
     # --- FASE 2A: LINKEDIN ---
     print("\n[*] Fase 2A: Scraping massivo LinkedIn (ultime 24h)...")
@@ -157,30 +184,6 @@ async def main():
         return
 
     print(f"\n[*] Fase 2: Inizio valutazione AI di {len(all_jobs)} annunci unici con Gemini 3.8 Flash...\n")
-    
-    import csv
-    from datetime import datetime
-    
-    history_file = "history.csv"
-    file_exists = os.path.isfile(history_file)
-    already_evaluated_urls = set()
-    already_evaluated_hashes = {}
-    evaluated_records = []
-    
-    if file_exists:
-        try:
-            with open(history_file, mode="r", encoding="utf-8") as existing_f:
-                reader = csv.DictReader(existing_f)
-                for row in reader:
-                    evaluated_records.append(row)
-                    if row.get("URL"):
-                        already_evaluated_urls.add(row["URL"])
-                    if row.get("Content_Hash"):
-                        already_evaluated_hashes[row["Content_Hash"]] = row
-            if already_evaluated_urls or already_evaluated_hashes:
-                print(f"[*] Caricati {len(already_evaluated_urls)} URL e {len(already_evaluated_hashes)} fingerprint storici. Verranno saltati per risparmiare chiamate AI.")
-        except Exception as e:
-            print(f"[-] Avviso lettura storico precedente: {e}")
     
     with open(history_file, mode="a", newline="", encoding="utf-8") as csvfile:
         fieldnames = ["Data", "Piattaforma", "Titolo", "Azienda", "Match", "Rejection_Tag", "Stato_UI", "Content_Hash", "Reasoning", "URL"]
