@@ -25,7 +25,8 @@ Sistema intelligente e autonomo per il monitoraggio avanzato del mercato del lav
 5. [Agente LangGraph: Contact Hunter](#-agente-langgraph-contact-hunter)
 6. [Sistema di Notifica (WhatsApp & Email)](#-sistema-di-notifica-whatsapp--email)
 7. [Storico & Data Audit (history.csv)](#-storico--data-audit-historycsv)
-8. [Configurazione e Guida all'Uso](#-configurazione-e-guida-alluso)
+8. [Roadmap & Specifiche Interfaccia Utente (UI)](#-roadmap--specifiche-interfaccia-utente-ui)
+9. [Configurazione e Guida all'Uso](#-configurazione-e-guida-alluso)
 
 ---
 
@@ -302,6 +303,27 @@ Ogni annuncio analizzato da Gemini viene registrato in tempo reale in [history.c
 | `2026-09-28 18:20:11` | *HR Specialist* | *Bending Spoons* | **SI** | *(null)* | Azienda di prodotto, full remote, ruolo in linea... | `https://...` |
 | `2026-09-28 18:22:45` | *Recruiter* | *The Adecco Group* | **NO** | `AGENZIA` | Società di somministrazione categoricamente esclusa... | `https://...` |
 | `2026-09-28 18:24:02` | *HR Generalist* | *Manifattura SPA* | **NO** | `LOCATION_ERRATA` | Richiede presenza 5 giorni su 5 a Torino... | `https://...` |
+
+## 🖥️ Roadmap & Specifiche Interfaccia Utente (UI)
+
+È pianificata un'interfaccia grafica moderna (collocata nel modulo [src/ui/](file:///c:/Users/borgi/projects/AI-Job-Finder/src/ui/)). Di seguito i requisiti funzionali cardine approvati che la UI implementerà:
+
+### 1. Gestione e Modifica della Blacklist Aziende Escluse
+- **Consultazione Trasparente (`data/learned_agencies.json`)**: La UI offrirà un pannello di controllo dedicato con l'elenco completo di tutte le aziende che l'Intelligenza Artificiale ha categorizzato e memorizzato come Agenzie per il Lavoro / Somministrazione / Consulenza.
+- **Modifica ed Override Manuale**:
+  - **Eliminazione Azienda**: L'utente potrà rimuovere con un singolo click un'azienda dalla blacklist (es. in caso di falso positivo di Gemini o se l'utente intende riaprire le porte a quella specifica realtà).
+  - **Aggiunta Manuale**: Possibilità di inserire direttamente da interfaccia il nome di un'azienda da escludere a priori.
+- **Sincronizzazione Bidirezionale con il Backend**: Ogni modifica apportata sulla UI si riflette istantaneamente nel file [data/learned_agencies.json](file:///c:/Users/borgi/projects/AI-Job-Finder/data/learned_agencies.json), garantendo che i successivi cicli di scraping recepiano immediatamente le nuove direttive.
+
+### 2. Inbox Opportunità & Gestione Stato (`Stato_UI`)
+- **Feed delle Candidature Valide (`is_match = True`)**: Visualizzazione a card delle posizioni promosse da Gemini con indicazione di Titolo, Azienda, Piattaforma (LinkedIn / Indeed), Fit Score %, e la scheda dei contatti dell'Hiring Manager/Recruiter dedotta da LangGraph.
+- **Azioni Interattive**:
+  - `Segna come Letto`: aggiorna lo `Stato_UI` da `NON_LETTO` a `LETTO` in [history.csv](file:///c:/Users/borgi/projects/AI-Job-Finder/history.csv).
+  - `Scarta dalla UI`: archivia l'annuncio impostando `Stato_UI = SCARTATO`.
+  - `Candidati`: link diretto all'annuncio originale per l'invio della candidatura.
+
+### 3. Analytics e Distribuzione di Mercato
+- Visualizzazione interattiva dei dati registrati in [history.csv](file:///c:/Users/borgi/projects/AI-Job-Finder/history.csv): volume annunci LinkedIn vs Indeed, percentuali di scarto per categoria (`RejectionReason`) e mappa delle opportunità su Bari/Puglia vs Full Remote.
 
 ---
 
