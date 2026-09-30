@@ -3,41 +3,41 @@ import sys
 import json
 import asyncio
 import subprocess
-from playwright.async_api import async_playwright
+import camoufox
+from camoufox.async_api import AsyncCamoufox
 
 VPS_HOST = "195.201.148.129"
 
 async def main():
     print("=" * 65)
-    print("🔑 ACCESSO INTERATTIVO INDEED (RISOLUZIONE CAPTCHA DA DESKTOP)")
+    print("🔑 ACCESSO INTERATTIVO INDEED - MOTORE STEALTH CAMOUFOX")
     print("=" * 65)
-    print("\nSto aprendo la finestra del browser sul tuo desktop...")
+    print("\nSto aprendo la finestra del browser Stealth sul tuo desktop...")
     
-    async with async_playwright() as p:
-        # Avvia browser visibile con accelerazione grafica reale
-        browser = await p.chromium.launch(
-            headless=False,
-            args=[
-                '--disable-blink-features=AutomationControlled',
-                '--start-maximized'
-            ]
-        )
+    # Avvia Camoufox (Firefox Anti-Detect) che NON espone i flag di automazione CDP di Chromium
+    async with AsyncCamoufox(
+        headless=False,
+        humanize=True,
+        os="windows",
+        exclude_addons=[camoufox.DefaultAddons.UBO],
+    ) as browser:
         context = await browser.new_context(
-            viewport=None,
-            locale="it-IT"
+            locale="it-IT",
+            viewport={"width": 1400, "height": 900}
         )
         page = await context.new_page()
         
         print("[*] Navigazione su https://secure.indeed.com/auth ...")
         await page.goto("https://secure.indeed.com/auth", wait_until="domcontentloaded")
         
-        print("\n" + "=" * 55)
+        print("\n" + "=" * 60)
         print("👉 ADESSO TOCCA A TE NELLA FINESTRA DEL BROWSER APERTA:")
         print("   1. Clicca sul checkbox del captcha Cloudflare col mouse.")
+        print("      (Con il motore Stealth il captcha si valida senza ricaricarsi!)")
         print("   2. Inserisci la tua email e completa il login.")
         print("   3. Appena sei dentro a Indeed, lo script salvera'")
         print("      la sessione e la inviera' automaticamente al VPS!")
-        print("=" * 55 + "\n")
+        print("=" * 60 + "\n")
         print("[*] In ascolto del completamento del login...", flush=True)
         
         # Aspetta che l'utente completi il login
@@ -55,7 +55,6 @@ async def main():
         session_file = "indeed_session.json"
         await context.storage_state(path=session_file)
         print(f"[+] Sessione salvata localmente in '{session_file}'.")
-        await browser.close()
         
         # Sincronizza sul VPS Hetzner e nei container Docker
         print(f"\n[*] Sincronizzazione immediata sul VPS Hetzner ({VPS_HOST})...")
