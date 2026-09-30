@@ -27,8 +27,8 @@ async def main():
         )
         page = await context.new_page()
         
-        print("[*] Navigazione su https://secure.indeed.com/auth ...")
-        await page.goto("https://secure.indeed.com/auth", wait_until="domcontentloaded")
+        print("[*] Navigazione su https://it.indeed.com ...")
+        await page.goto("https://it.indeed.com/", wait_until="domcontentloaded")
         
         print("\n" + "=" * 60)
         print("👉 ADESSO TOCCA A TE NELLA FINESTRA DEL BROWSER APERTA:")
