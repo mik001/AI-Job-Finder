@@ -61,6 +61,11 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "notifications": {
         "whatsapp_enabled": True,
         "channels": []
+    },
+    "diagnostics": {
+        "enabled": True,
+        "max_saved_runs": 5,
+        "capture_screenshots": True
     }
 }
 
@@ -307,3 +312,19 @@ class ConfigManager:
     @classmethod
     def clear_manual_run(cls):
         cls.update_scheduler_state(manual_trigger_requested=False)
+
+    @classmethod
+    def get_diagnostics_config(cls) -> Dict[str, Any]:
+        cfg = cls.load_config()
+        return cfg.get("diagnostics", {
+            "enabled": True,
+            "max_saved_runs": 5,
+            "capture_screenshots": True
+        })
+
+    @classmethod
+    def save_diagnostics_config(cls, diag_config: Dict[str, Any]) -> bool:
+        cfg = cls.load_config()
+        cfg["diagnostics"] = diag_config
+        return cls.save_config(cfg)
+

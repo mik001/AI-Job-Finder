@@ -1,0 +1,120 @@
+{
+  "candidate": {
+    "role_title": "HR Recruiter & Specialist",
+    "exclude_agencies": true,
+    "profile_prompt": "Candidata: 30 anni, 4 anni di esperienza nel settore HR come Recruiter (executive search in Randstad Professional e attualmente in somministrazione).\nObiettivo Principale: Fare esperienza e lavorare come HR INTERNA all'interno del team di un'azienda cliente finale.\nRuoli accettati: Recruiter interna, HR Generalist, HR Specialist, Talent Acquisition, People Operations, o altri ruoli HR.\nLocalità e Modalità di Lavoro: \n- Accetta lavoro in sede o ibrido (es. un paio di giorni a settimana in ufficio) SOLO se a Bari o dintorni.\n- Accetta Full Remote (o ibrido con presenza rarissima in sede, es. 1 volta al mese) in tutta Italia.\n\nREGOLA FONDAMENTALE SU AGENZIE E SOMMINISTRAZIONE:\n- Categoricamente NO a ruoli interni di filiale presso agenzie per il lavoro (es. fare il recruiter di filiale in Adecco/Randstad/Manpower che seleziona per conto di terzi).\n- ACCETTATO CON VALUTAZIONE POSITIVA (is_match=True): Contratti di somministrazione o staff leasing (anche se emessi da Adecco, Randstad, ecc.) IN CUI LA CANDIDATA VIENE INSERITA A LAVORARE DENTRO IL TEAM HR DI UN'AZIENDA CLIENTE FINALE (es. \"per conto di nostra azienda cliente cerchiamo HR Generalist/Recruiter\"). Questa tipologia di lavoro in azienda terza è considerata un ottimo trampolino di lancio per fare esperienza aziendale ed è da considerare valida se rispetta la sede (Bari o Full Remote).\n\nALTRE REGOLE MORBIDE (NON SCARTARE):\n- La seniority troppo alta (es. Senior/Manager), troppo bassa (es. Stage/Junior) o la modalità Freelance/P.IVA NON DEVONO essere un motivo di scarto. Includile nei 'cons' (warning) ma mantieni is_match=True se l'annuncio rispetta la sede e la natura del ruolo aziendale."
+  },
+  "search": {
+    "max_results_linkedin": 50,
+    "max_results_indeed": 30,
+    "queries": [
+      {
+        "keywords": "Risorse Umane",
+        "location": "Italia",
+        "enabled": true
+      },
+      {
+        "keywords": "Human Resources",
+        "location": "Italia",
+        "enabled": true
+      },
+      {
+        "keywords": "HR",
+        "location": "Italia",
+        "enabled": true
+      },
+      {
+        "keywords": "Recruiter OR Recruiting",
+        "location": "Italia",
+        "enabled": true
+      },
+      {
+        "keywords": "Talent Acquisition",
+        "location": "Italia",
+        "enabled": true
+      },
+      {
+        "keywords": "HR Generalist OR HR Specialist",
+        "location": "Italia",
+        "enabled": true
+      },
+      {
+        "keywords": "People Culture",
+        "location": "Italia",
+        "enabled": true
+      },
+      {
+        "keywords": "People Operations",
+        "location": "Italia",
+        "enabled": true
+      },
+      {
+        "keywords": "Talent Partner OR Talent Specialist",
+        "location": "Italia",
+        "enabled": true
+      },
+      {
+        "keywords": "HR Business Partner OR HRBP",
+        "location": "Italia",
+        "enabled": true
+      },
+      {
+        "keywords": "Selezione del Personale",
+        "location": "Italia",
+        "enabled": true
+      },
+      {
+        "keywords": "Risorse Umane",
+        "location": "Bari",
+        "enabled": true
+      },
+      {
+        "keywords": "HR",
+        "location": "Puglia",
+        "enabled": true
+      },
+      {
+        "keywords": "Recruiter",
+        "location": "Bari",
+        "enabled": true
+      },
+      {
+        "keywords": "Talent Acquisition",
+        "location": "Puglia",
+        "enabled": true
+      },
+      {
+        "keywords": "Selezione del Personale",
+        "location": "Bari",
+        "enabled": true
+      }
+    ]
+  },
+  "scheduling": {
+    "enabled": true,
+    "times": [
+      "08:30",
+      "18:00"
+    ],
+    "timezone": "Europe/Rome"
+  },
+  "notifications": {
+    "whatsapp_enabled": true,
+    "channels": [
+      {
+        "id": "ch_env_1",
+        "name": "Destinatario Primario (.env)",
+        "phone": "+393925435261",
+        "apikey": "1675878",
+        "enabled": true
+      },
+      {
+        "id": "ch_env_2",
+        "name": "Destinatario Secondario (.env)",
+        "phone": "+393348652594",
+        "apikey": "4407379",
+        "enabled": true
+      }
+    ]
+  }
+}

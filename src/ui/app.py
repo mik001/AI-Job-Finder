@@ -1188,6 +1188,42 @@ with tab_config:
             }
         )
 
+        st.divider()
+
+        # 5. Diagnostica Avanzata & Snapshot Playwright
+        with st.container(border=True):
+            st.subheader("📸 Diagnostica Avanzata & Snapshot Playwright")
+            st.markdown(
+                "Configura la retention automatica delle esecuzioni passate: salvataggio screenshot delle pagine visitate "
+                "da Playwright (ricerche, feed, annunci) e log tecnici dedicati per ciascuna esecuzione."
+            )
+            diag_cfg = ConfigManager.get_diagnostics_config()
+            diag_col1, diag_col2 = st.columns([3, 2])
+            with diag_col1:
+                cur_max = int(diag_cfg.get("max_saved_runs", 5))
+                new_max_runs = st.slider(
+                    "Numero massimo di run da conservare nell'archivio storico:",
+                    min_value=2,
+                    max_value=20,
+                    value=cur_max,
+                    key="max_saved_runs_slider",
+                    help="Le run più vecchie oltre questo limite vengono eliminate automaticamente per non saturare lo spazio su disco."
+                )
+            with diag_col2:
+                cur_snap = diag_cfg.get("capture_screenshots", True)
+                new_snap_enabled = st.toggle(
+                    "Cattura screenshot diagnostici di Playwright durante lo scraping",
+                    value=cur_snap,
+                    key="capture_screenshots_toggle",
+                    help="Cattura screenshot ad alta risoluzione del feed, delle ricerche e dei dettagli offerta per verificare che il DOM non sia cambiato."
+                )
+            if new_max_runs != cur_max or new_snap_enabled != cur_snap:
+                diag_cfg["max_saved_runs"] = new_max_runs
+                diag_cfg["capture_screenshots"] = new_snap_enabled
+                ConfigManager.save_diagnostics_config(diag_cfg)
+                st.toast("Impostazioni diagnostiche aggiornate con successo!", icon="✅")
+
+
     # =====================================================================
     # TAB 5: LOG DI SISTEMA & DIAGNOSTICA OPERATIVA LIVE
     # =====================================================================
@@ -1199,7 +1235,9 @@ with tab_config:
             unsafe_allow_html=True
         )
 
-        LOG_PATH = os.path.join("data", "system_run.log")
+        subtab_live, subtab_archive = st.tabs(["📡 Live Streaming Terminal", "📸 Archivio Ultime Run & Snapshot Playwright"])
+        with subtab_live:
+            LOG_PATH = os.path.join("data", "system_run.log")
 
         def load_system_logs() -> list:
             """Carica le righe del log di sistema in modo sicuro e performante."""
@@ -1418,5 +1456,75 @@ with tab_config:
             render_live_logs_fragment()
         else:
             render_static_logs_fragment()
+
+        with subtab_archive:
+            from src.diagnostics import RunDiagnostics
+            saved_runs = RunDiagnostics.get_all_runs()
+            if not saved_runs:
+                st.info("💡 Nessuna run diagnostica archiviata al momento. Verranno salvate a partire dalla prossima esecuzione!")
+            else:
+                st.markdown(f"Trovate **{len(saved_runs)}** esecuzioni conservate nello storico locale (impostate per conservare le ultime N):")
+                run_opts = []
+                for r in saved_runs:
+                    r_id = r.get("run_id", "Sconosciuta")
+                    r_start = r.get("start_time", "")
+                    r_st = r.get("status", "SUCCESS")
+                    stt = r.get("stats", {})
+                    scraped = stt.get("total_scraped", 0)
+                    matches = stt.get("new_matches", 0)
+                    snaps = r.get("screenshots_count", 0)
+                    lbl = f"{r_start}  |  {r_id}  |  {r_st}  ({scraped} annunci, {matches} match, 📸 {snaps} snap)"
+                    run_opts.append((lbl, r_id))
+                
+                sel_lbl = st.selectbox("Seleziona Run da ispezionare:", options=[o[0] for o in run_opts], key="selected_archive_run")
+                chosen_id = next(o[1] for o in run_opts if o[0] == sel_lbl)
+                
+                details = RunDiagnostics.get_run_details(chosen_id)
+                if details:
+                    sm = details.get("summary", {})
+                    c1, c2, c3, c4 = st.columns(4)
+                    with c1:
+                        st.metric("Esito Run", sm.get("status", "N/D"))
+                    with c2:
+                        st.metric("Durata", f"{sm.get('duration_seconds', 0)}s")
+                    with c3:
+                        st.metric("Annunci Estratti", sm.get("stats", {}).get("total_scraped", 0))
+                    with c4:
+                        st.metric("Nuovi Match", sm.get("stats", {}).get("new_matches", 0))
+                        
+                    if sm.get("error"):
+                        st.error(f"❌ Errore registrato nella run: {sm['error']}")
+
+                    st.markdown("---")
+                    st.markdown(f"#### 📸 Snapshot Playwright di Questa Run ({len(details['screenshots'])})")
+                    if not details["screenshots"]:
+                        st.caption("Nessuno screenshot catturato per questa run.")
+                    else:
+                        cols = st.columns(3)
+                        for i, snap in enumerate(details["screenshots"]):
+                            col_c = cols[i % 3]
+                            with col_c:
+                                with st.container(border=True):
+                                    st.caption(f"**{snap['filename']}**")
+                                    if os.path.exists(snap["abs_path"]):
+                                        st.image(snap["abs_path"], use_container_width=True)
+                                    else:
+                                        st.warning("Immagine non trovata su disco.")
+
+                    st.markdown("---")
+                    with st.expander(f"📜 Log Tecnico Completo ({chosen_id})", expanded=False):
+                        rlog = details.get("log", "")
+                        if rlog:
+                            st.code(rlog, language="text")
+                            st.download_button(
+                                "📥 Scarica Log Esecuzione (.txt)",
+                                data=rlog,
+                                file_name=f"{chosen_id}.log",
+                                mime="text/plain",
+                                key=f"dl_archive_{chosen_id}"
+                            )
+                        else:
+                            st.info("Nessun log testuale disponibile per questa run.")
+
 
 

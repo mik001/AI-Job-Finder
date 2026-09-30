@@ -7,28 +7,37 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", line_buffering=True)
 
-# Dual-output logger che scrive contemporaneamente su console e su data/system_run.log
+# Dual-output logger che scrive contemporaneamente su console, su data/system_run.log e nel log dedicato della run
 LOG_FILE_PATH = os.path.join("data", "system_run.log")
 
 class TeeLogger:
     def __init__(self, filepath, stream):
         self.stream = stream
-        os.makedirs(os.path.dirname(filepath), exist_ok=True)
-        self.file = open(filepath, "a", encoding="utf-8", buffering=1)
+        self.files = []
+        if filepath:
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            self.files.append(open(filepath, "a", encoding="utf-8", buffering=1))
+
+    def add_file(self, filepath):
+        if filepath:
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            self.files.append(open(filepath, "a", encoding="utf-8", buffering=1))
 
     def write(self, data):
         self.stream.write(data)
-        try:
-            self.file.write(data)
-        except Exception:
-            pass
+        for f in self.files:
+            try:
+                f.write(data)
+            except Exception:
+                pass
 
     def flush(self):
         self.stream.flush()
-        try:
-            self.file.flush()
-        except Exception:
-            pass
+        for f in self.files:
+            try:
+                f.flush()
+            except Exception:
+                pass
 
 if not isinstance(sys.stdout, TeeLogger):
     sys.stdout = TeeLogger(LOG_FILE_PATH, sys.stdout)
@@ -41,6 +50,7 @@ from src.evaluator.job_evaluator import JobEvaluator
 from src.agents.contact_hunter import contact_hunter_app
 from src.notifier.whatsapp_notifier import WhatsAppNotifier
 from src.config_manager import ConfigManager
+from src.diagnostics import RunDiagnostics
 
 import hashlib
 import re
@@ -128,9 +138,21 @@ async def main():
     max_results_indeed = app_config.get("search", {}).get("max_results_indeed", 30)
     role_title = candidate_cfg.get("role_title", "Candidato")
     
+    # Diagnostica & Snapshot
+    diag_cfg = ConfigManager.get_diagnostics_config()
+    diagnostics = RunDiagnostics(
+        max_saved_runs=diag_cfg.get("max_saved_runs", 5),
+        enabled=diag_cfg.get("enabled", True)
+    )
+    if isinstance(sys.stdout, TeeLogger):
+        sys.stdout.add_file(diagnostics.log_file_path)
+    if isinstance(sys.stderr, TeeLogger):
+        sys.stderr.add_file(diagnostics.log_file_path)
+
     print(f"[*] Profilo target attivo: {role_title}")
     print(f"[*] Filtro esclusione agenzie/headhunting: {'ATTIVO' if exclude_agencies else 'DISATTIVATO'}")
     print(f"[*] Query di ricerca attive: {len(search_queries)}")
+    print(f"[*] Sessione diagnostica attiva: {diagnostics.run_id} (Cartella: {diagnostics.run_dir})")
     
     ConfigManager.update_scheduler_state(
         is_running=True,
@@ -142,7 +164,7 @@ async def main():
     )
     
     # Inizializzazione Moduli
-    scraper = LinkedInScraper()
+    scraper = LinkedInScraper(diagnostics=diagnostics)
     evaluator = JobEvaluator(user_profile=candidate_profile, exclude_agencies=exclude_agencies)
     notifier = WhatsAppNotifier()
     
@@ -198,7 +220,7 @@ async def main():
     
     # --- FASE 2B: INDEED ---
     print("\n[*] Fase 2B: Scraping massivo Indeed Italia (ultime 24h, paginazione autenticata)...", flush=True)
-    indeed_scraper = IndeedScraper()
+    indeed_scraper = IndeedScraper(diagnostics=diagnostics)
     await indeed_scraper.auth_manager.perform_login_if_needed()
     await indeed_scraper.init_browser()
     
@@ -218,6 +240,10 @@ async def main():
                 
     if not all_jobs:
         print("[-] Nessun annuncio trovato o fallimento scraping.")
+        diagnostics.finish_run(
+            status="EMPTY",
+            stats={"total_scraped": 0, "total_matches": 0, "queries_count": len(search_queries)}
+        )
         ConfigManager.update_scheduler_state(
             is_running=False,
             pid=None,
@@ -403,6 +429,16 @@ async def main():
                 print(f"[-] Errore durante il processing di {job['title']}: {e}")
 
     # Registrazione completamento con successo nello stato persistente
+    diagnostics.finish_run(
+        status="SUCCESS",
+        stats={
+            "total_scraped": len(all_jobs),
+            "total_evaluated": total_eval_jobs if 'total_eval_jobs' in locals() else len(all_jobs),
+            "new_matches": new_matches_count,
+            "queries_count": len(search_queries),
+            "target_role": role_title
+        }
+    )
     ConfigManager.update_scheduler_state(
         is_running=False,
         pid=None,

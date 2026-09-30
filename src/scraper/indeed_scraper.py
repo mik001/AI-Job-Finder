@@ -7,8 +7,9 @@ from typing import List, Dict, Set
 from src.scraper.auth_manager import AuthManager
 
 class IndeedScraper:
-    def __init__(self):
+    def __init__(self, diagnostics=None):
         self.auth_manager = AuthManager("indeed")
+        self.diagnostics = diagnostics
         # fromage=1 filtra esclusivamente le ultime 24 ore (giornaliero)
         self.base_url = "https://it.indeed.com/jobs?q={keywords}&l={location}&fromage=1&sort=date&start={start}"
         self.p = None
@@ -22,7 +23,15 @@ class IndeedScraper:
         self.p = await async_playwright().start()
         self.browser = await self.p.chromium.launch(
             headless=True,
-            args=['--disable-blink-features=AutomationControlled']
+            args=[
+                '--disable-blink-features=AutomationControlled',
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-infobars',
+                '--window-size=1920,1080',
+                '--disable-dev-shm-usage',
+                '--lang=it-IT,it'
+            ]
         )
 
     async def close_browser(self):
@@ -37,7 +46,19 @@ class IndeedScraper:
         context_kwargs = {
             "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "viewport": {"width": 1920, "height": 1080},
-            "locale": "it-IT"
+            "locale": "it-IT",
+            "timezone_id": "Europe/Rome",
+            "extra_http_headers": {
+                "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
+                "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+                "sec-ch-ua-mobile": "?0",
+                "sec-ch-ua-platform": '"Windows"',
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-User": "?1",
+                "Upgrade-Insecure-Requests": "1"
+            }
         }
         if self.is_authenticated and os.path.exists(self.session_file):
             context = await self.browser.new_context(storage_state=self.session_file, **context_kwargs)
@@ -106,13 +127,30 @@ class IndeedScraper:
                     break
 
                 page_title = await page.title()
-                if "security check" in page_title.lower() or "just a moment" in page_title.lower():
-                    print(f"[-] Security Check rilevato su Indeed per '{keywords}' (start={start}). Attendo 3s...", flush=True)
-                    await page.wait_for_timeout(3000)
+                if "security check" in page_title.lower() or "just a moment" in page_title.lower() or "challenge" in page_title.lower():
+                    print(f"[-] Security Check Cloudflare rilevato su Indeed per '{keywords}' (start={start}). Attendo risoluzione (6s)...", flush=True)
+                    await page.wait_for_timeout(6000)
                     page_title = await page.title()
-                    if "security check" in page_title.lower() or "just a moment" in page_title.lower():
-                        print(f"[-] Pagina Indeed bloccata da verifica, proseguo.", flush=True)
+                    if "security check" in page_title.lower() or "just a moment" in page_title.lower() or "challenge" in page_title.lower():
+                        # Tentativo interazione con eventuale checkbox turnstile
+                        try:
+                            frames = page.frames
+                            for f in frames:
+                                box = f.locator("input[type='checkbox'], #challenge-stage, .cf-turnstile")
+                                if await box.count() > 0:
+                                    await box.first.click()
+                                    await page.wait_for_timeout(4000)
+                                    break
+                        except Exception:
+                            pass
+                        page_title = await page.title()
+
+                    if "security check" in page_title.lower() or "just a moment" in page_title.lower() or "challenge" in page_title.lower():
+                        print(f"[-] Pagina Indeed bloccata da verifica Cloudflare, proseguo.", flush=True)
                         break
+
+                if self.diagnostics and start == 0:
+                    await self.diagnostics.capture_screenshot(page, f"indeed_search_{keywords[:15]}")
 
                 # Estraiamo l'intero DOM della pagina in BeautifulSoup istantaneamente
                 html = await page.content()

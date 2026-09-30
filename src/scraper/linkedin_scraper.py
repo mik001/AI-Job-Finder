@@ -4,8 +4,10 @@ from src.scraper.auth_manager import AuthManager
 from bs4 import BeautifulSoup
 
 class LinkedInScraper:
-    def __init__(self):
+    def __init__(self, diagnostics=None):
         self.auth_manager = AuthManager("linkedin")
+        self.diagnostics = diagnostics
+        self._sampled_job_desc_snap = False
         # f_TPR=r90000 filtra le ultime 25 ore (90.000 secondi) per evitare finestre di vuoto tra scansioni giornaliere
         self.base_url = "https://www.linkedin.com/jobs/search/?keywords={keywords}&location={location}&f_TPR=r90000&sortBy=DD&start={start}"
         self.p = None
@@ -29,6 +31,8 @@ class LinkedInScraper:
             if "login" in cur or "signup" in cur or "checkpoint" in cur or "/feed" not in cur:
                 raise RuntimeError(f"LinkedIn sessione non valida dopo il login! URL: {self.page.url}")
             print("[+] [LinkedInScraper] Browser inizializzato in modalità AUTENTICATA (Nessun accesso guest).", flush=True)
+            if self.diagnostics:
+                await self.diagnostics.capture_screenshot(self.page, "linkedin_feed_auth")
         except Exception as e:
             if "sessione non valida" in str(e):
                 raise e
@@ -159,6 +163,10 @@ class LinkedInScraper:
             except Exception:
                 pass
                 
+            if self.diagnostics and not self._sampled_job_desc_snap:
+                self._sampled_job_desc_snap = True
+                await self.diagnostics.capture_screenshot(self.desc_page, "linkedin_sample_job_detail")
+                
             html = await self.desc_page.content()
             soup = BeautifulSoup(html, "html.parser")
             
@@ -223,6 +231,8 @@ class LinkedInScraper:
                 break
                 
             await page.wait_for_timeout(3000)  # Pausa umana
+            if self.diagnostics and start == 0:
+                await self.diagnostics.capture_screenshot(page, f"linkedin_search_{keywords[:15]}")
             
             # Scorriamo l'effettivo pannello scrollabile per attivare il lazy loading di tutte le 25 card
             await page.evaluate("""
