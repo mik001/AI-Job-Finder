@@ -221,8 +221,15 @@ async def main():
     # --- FASE 2B: INDEED ---
     print("\n[*] Fase 2B: Scraping massivo Indeed Italia (ultime 24h, paginazione autenticata)...", flush=True)
     indeed_scraper = IndeedScraper(diagnostics=diagnostics)
-    await indeed_scraper.auth_manager.perform_login_if_needed()
-    await indeed_scraper.init_browser()
+    try:
+        await indeed_scraper.auth_manager.perform_login_if_needed()
+    except Exception as auth_err:
+        print(f"[-] [Indeed Auth] Avviso login: {auth_err}. Procedo in modalità resiliente.", flush=True)
+
+    try:
+        await indeed_scraper.init_browser()
+    except Exception as init_err:
+        print(f"[-] [Indeed Browser] Avviso avvio browser: {init_err}. Procedo in modalità resiliente.", flush=True)
     
     for idx, sq in enumerate(search_queries, 1):
         step_desc = f"Indeed [{idx}/{total_queries}]: '{sq['keywords']}' in '{sq['location']}'"

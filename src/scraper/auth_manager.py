@@ -23,7 +23,7 @@ class AuthManager:
         }
         return urls.get(self.platform, "")
 
-    async def get_context(self, p, headless: bool = True, silent: bool = False) -> BrowserContext:
+    async def get_context(self, p, headless: bool = True, silent: bool = False, load_session: bool = True) -> BrowserContext:
         """
         Creates a browser context. Loads session if exists.
         """
@@ -34,11 +34,11 @@ class AuthManager:
             "viewport": {"width": 1920, "height": 1080},
         }
 
-        if os.path.exists(self.session_file):
+        if load_session and os.path.exists(self.session_file):
             if not silent: print(f"[+] Trovata sessione esistente per {self.platform}. Caricamento in corso...")
             context = await browser.new_context(storage_state=self.session_file, **context_kwargs)
         else:
-            if not silent: print(f"[-] Nessuna sessione trovata per {self.platform}. Creazione nuovo contesto...")
+            if not silent: print(f"[-] Creazione nuovo contesto pulito per {self.platform}...")
             context = await browser.new_context(**context_kwargs)
             
         return context
@@ -305,7 +305,7 @@ class AuthManager:
                 print(f"[*] Sessione scaduta o inesistente per {self.platform}. Avvio procedura di autenticazione...", flush=True)
                 import sys
                 force_headless = os.getenv("HEADLESS", "true").lower() in ("true", "1") or (sys.platform != "win32" and not os.getenv("DISPLAY"))
-                context = await self.get_context(p, headless=force_headless)
+                context = await self.get_context(p, headless=force_headless, load_session=False)
                 page = await context.new_page()
                 await Stealth().apply_stealth_async(page)
                 

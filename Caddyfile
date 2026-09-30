@@ -1,0 +1,16 @@
+my-job-finder.duckdns.org {
+    basicauth * {
+        admin $2a$14$/tl4FSBteH27nVdHAr1BuukF1W53d3bckNqHZ3vDm3AVRhscJpayK
+        bartoli $2a$14$2WJnApYbHDWRVAAZnhaqTOGxnxRxx6OvrG7FEKuJOVngG.035k.8C
+    }
+
+    reverse_proxy ai-job-finder-ui:8501 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+}
+
+
+

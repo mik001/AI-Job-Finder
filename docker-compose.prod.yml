@@ -1,0 +1,64 @@
+services:
+  # 1. Web Dashboard (Streamlit UI)
+  ai-job-finder-ui:
+    build: .
+    container_name: ai_job_finder_ui
+    command: ["streamlit", "run", "src/ui/app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+    restart: unless-stopped
+    expose:
+      - "8501"
+    env_file:
+      - .env
+    volumes:
+      - ./src:/app/src
+      - ./history.csv:/app/history.csv
+      - ./data:/app/data
+      - ./indeed_session.json:/app/indeed_session.json
+      - ./linkedin_session.json:/app/linkedin_session.json
+    networks:
+      - jobfinder-net
+
+  # 2. Schedulatore Continuo di Background
+  ai-job-finder-scheduler:
+    build: .
+    container_name: ai_job_finder_scheduler
+    command: ["python", "src/scheduler.py"]
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./src:/app/src
+      - ./history.csv:/app/history.csv
+      - ./data:/app/data
+      - ./indeed_session.json:/app/indeed_session.json
+      - ./linkedin_session.json:/app/linkedin_session.json
+    networks:
+      - jobfinder-net
+
+  # 3. Caddy Reverse Proxy (HTTPS automatico / HTTP port 80)
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: ai_job_finder_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN_NAME=${DOMAIN_NAME:-}
+      - ACME_EMAIL=${ACME_EMAIL:-admin@example.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - ai-job-finder-ui
+    networks:
+      - jobfinder-net
+
+networks:
+  jobfinder-net:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -1,14 +1,31 @@
 version: '3.8'
 
 services:
-  ai-job-finder:
+  # 1. Web Dashboard Interattiva (Streamlit)
+  ai-job-finder-ui:
     build: .
-    container_name: ai_job_finder
+    container_name: ai_job_finder_ui
+    command: ["streamlit", "run", "src/ui/app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    volumes:
+      - ./history.csv:/app/history.csv
+      - ./data:/app/data
+      - ./indeed_session.json:/app/indeed_session.json
+      - ./linkedin_session.json:/app/linkedin_session.json
+
+  # 2. Schedulatore Continuo di Background (Demone di Scansione Automatica)
+  ai-job-finder-scheduler:
+    build: .
+    container_name: ai_job_finder_scheduler
+    command: ["python", "src/scheduler.py"]
     restart: unless-stopped
     env_file:
       - .env
     volumes:
-      # Persistenza dei dati, storici e sessioni
       - ./history.csv:/app/history.csv
       - ./data:/app/data
       - ./indeed_session.json:/app/indeed_session.json

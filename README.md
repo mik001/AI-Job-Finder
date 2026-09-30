@@ -1,22 +1,23 @@
 # 🤖 AI Job Finder & Autonomous Contact Hunter
 
-Sistema enterprise e autonomo per il monitoraggio avanzato del mercato del lavoro, lo scraping resiliente anti-bot (**LinkedIn** + **Indeed Italia**), la valutazione semantica dei requisiti tramite LLM (**Gemini 3.8 Flash**), la caccia automatizzata agli Hiring Manager tramite **LangGraph** & **Tavily**, notifiche istantanee gratuite via **WhatsApp (CallMeBot)** e dashboard web interattiva in **Streamlit**.
+Sistema enterprise e autonomo per il monitoraggio avanzato del mercato del lavoro, lo scraping resiliente anti-bot (**LinkedIn** + **Indeed Italia**), la valutazione semantica dei requisiti tramite LLM (**Gemini 3.8 Flash**), la caccia automatizzata agli Hiring Manager tramite **LangGraph** & **Tavily**, notifiche istantanee gratuite via **WhatsApp (CallMeBot)**, dashboard web interattiva in **Streamlit** e infrastruttura cloud di produzione containerizzata (**Hetzner Cloud VPS + Caddy HTTPS + DuckDNS**).
 
 ---
 
 ## 📌 Indice dei Contenuti
 1. [Obiettivo e Profilo Candidata](#-obiettivo-e-profilo-candidata)
 2. [Architettura Generale del Sistema](#-architettura-generale-del-sistema)
-3. [Tecnologie e Moduli Chiave](#-tecnologie-e-moduli-chiave)
-4. [Dettagli di Scraping: LinkedIn](#-scraping-linkedin-profondo)
-5. [Dettagli di Scraping: Indeed Italia](#-scraping-indeed-italia-multi-pagina--zero-stalli)
-6. [Valutazione Semantica con AI (Job Evaluator)](#-valutazione-semantica-con-ai-job-evaluator)
-7. [Deduplicazione Multi-Livello & Scalabilità](#-deduplicazione-multi-livello--scalabilità)
-8. [Agente LangGraph: Contact Hunter](#-agente-langgraph-contact-hunter)
-9. [Notifiche WhatsApp Gratuite (CallMeBot)](#-notifiche-whatsapp-callmebot)
-10. [Web Dashboard Interattiva (Streamlit)](#-web-dashboard-interattiva-streamlit)
-11. [Automazione & Schedulazione (Windows & Docker)](#-automazione--schedulazione)
-12. [Configurazione e Guida Rapida](#-configurazione-e-guida-rapida)
+3. [Infrastruttura Cloud & Produzione (Hetzner + Caddy + DuckDNS)](#-infrastruttura-cloud--produzione)
+4. [Tecnologie e Moduli Chiave](#-tecnologie-e-moduli-chiave)
+5. [Dettagli di Scraping: LinkedIn](#-scraping-linkedin-profondo)
+6. [Dettagli di Scraping: Indeed Italia](#-scraping-indeed-italia-multi-pagina--zero-stalli)
+7. [Valutazione Semantica con AI & Tassonomia Universale](#-valutazione-semantica-con-ai--tassonomia-universale)
+8. [Deduplicazione Multi-Livello & Scalabilità](#-deduplicazione-multi-livello--scalabilit)
+9. [Agente LangGraph: Contact Hunter](#-agente-langgraph-contact-hunter)
+10. [Notifiche WhatsApp Gratuite (CallMeBot)](#-notifiche-whatsapp-callmebot)
+11. [Web Dashboard Interattiva v2.0 (Streamlit)](#-web-dashboard-interattiva-v20-streamlit)
+12. [Automazione & Schedulazione Continua](#-automazione--schedulazione-continua)
+13. [Configurazione, Deploy Rapido e Manutenzione](#-configurazione-deploy-rapido-e-manutenzione)
 
 ---
 
@@ -24,14 +25,17 @@ Sistema enterprise e autonomo per il monitoraggio avanzato del mercato del lavor
 
 Il sistema è calibrato per monitorare quotidianamente il mercato e individuare opportunità mirate per una figura **HR Recruiter / Specialist** (30 anni, 4 anni di esperienza tra Executive Search/Permanent in agenzia e somministrazione), con l'obiettivo strategico di **lavorare come HR interna nel team di un'azienda cliente finale**.
 
-### Requisiti Chiave della Candidata:
+Grazie al **nuovo sistema di configurazione dinamica (`data/config.json`)**, il profilo, i vincoli geografici, i criteri contrattuali e il filtro per le agenzie possono essere **modificati in tempo reale** direttamente dall'interfaccia web per adattare il tool a qualsiasi figura professionale (IT, Marketing, Finanza, Ingegneria, ecc.).
+
+### Requisiti Predefiniti della Candidata:
 - **Ruoli Accettati**: Recruiter interna, HR Generalist, HR Specialist, Talent Acquisition, People Operations, Talent Partner, HR Business Partner.
 - **Sede e Modalità di Lavoro**:
   - In presenza o ibrido: **SOLO a Bari e provincia / Puglia**.
   - Da remoto: **Full Remote in tutta Italia** (o ibrido con presenza rarissima in sede).
-- **Regola Fondamentale su Agenzie e Somministrazione (Opzione A)**:
+- **Regola Fondamentale su Agenzie e Somministrazione**:
   - ❌ **Categoricamente NO**: Ruoli interni di filiale presso agenzie per il lavoro (es. recruiter di filiale in Adecco, Randstad, Manpower, Gi Group che seleziona per terzi).
   - ✅ **ACCETTATO CON VALUTAZIONE POSITIVA (`is_match = True`)**: Contratti di somministrazione o staff leasing in cui la candidata viene inserita **a lavorare dentro il team HR di un'azienda cliente finale** (trampolino per fare esperienza aziendale interna).
+- **Filtro Agenzie Configurabile**: Toggle attivabile/disattivabile per consentire o bloccare le agenzie/headhunter in base alle preferenze.
 - **Warning Tollerati (Non Scartano l'Annuncio)**:
   - Seniority alta (HR Manager) o bassa (Stage/Junior).
   - Contratti Freelance / P.IVA.
@@ -41,62 +45,126 @@ Il sistema è calibrato per monitorare quotidianamente il mercato e individuare 
 ## 🏗️ Architettura Generale del Sistema
 
 ```
-                        [ Scheduler (08:30 / 18:00) o Avvio Manuale ]
-                                              │
-                                              ▼
+                        [ Web Dashboard Streamlit o Orario Schedulato ]
+                                               │
+                                               ▼
+                        [ Demone Schedulatore Continuo 24/7 (src/scheduler.py) ]
+                                               │
+                                               ▼
                         [ history.csv: Caricamento 400+ URL & Fingerprint ]
-                                              │
-                    ┌─────────────────────────┴─────────────────────────┐
-                    ▼                                                   ▼
-       [ LinkedInScraper ]                                  [ IndeedScraper ]
-     ├── Login Stealth Persistente                        ├── Login Autonomo OTP (IMAP Gmail)
-     ├── 16 Query (Italia + Bari/Puglia)                  ├── Paginazione Multi-Pagina (start=0, 10, 20)
-     ├── Scroll virtuale DOM (25 card/pag)                ├── Parse Statico Istantaneo (0.05s)
-     └── Skip rapido seen_urls O(1)                       └── Bubble MouseEvent (Zero Stalli)
-                    │                                                   │
-                    └─────────────────────────┬─────────────────────────┘
-                                              ▼
-                              [ Deduplicazione Multi-Livello ]
-                             ├── Livello 1: SHA-256 esatto (0 token)
-                             └── Livello 2: Fuzzy Token Jaccard + Conferma Lampo Gemini
-                                              │
-                                              ▼
-                             [ JobEvaluator: Gemini 3.8 Flash ]
-                             ├── Verifica criteri rigidi (Sede, Tipo Ruolo, Azienda)
-                             ├── Assegnazione RejectionReason (AGENZIA, LOCATION_ERRATA, NOT_HR)
-                             ├── Apprendimento dinamico in data/learned_agencies.json
-                             └── Scrittura progressiva con Testo Integrale in history.csv
-                                              │
-                        ┌─────────────────────┴─────────────────────┐
-                        ▼                                           ▼
-                 Se [SCARTATO]                                 Se [MATCH]
-                 Fine elaborazione                                  │
-                                                                    ▼
-                                                    [ ContactHunter: LangGraph + Tavily ]
-                                                    ├── Caccia agli Hiring Manager su LinkedIn
-                                                    └── Deduzione pattern email aziendale
-                                                                    │
-                                                                    ▼
-                                                    [ WhatsAppNotifier: CallMeBot ]
-                                                    Alert istantaneo con Fit Score, Contatti e Link
-                                                                    │
-                                                                    ▼
-                                                    [ Streamlit UI Dashboard ]
-                                                    Visualizzazione, lettura offline e azioni 1-click
+                                               │
+                     ┌─────────────────────────┴─────────────────────────┐
+                     ▼                                                   ▼
+        [ LinkedInScraper ]                                  [ IndeedScraper ]
+      ├── Login Stealth Persistente                        ├── Login Autonomo OTP (IMAP Gmail)
+      ├── 16 Query (Italia + Bari/Puglia)                  ├── Paginazione Multi-Pagina (start=0, 10, 20)
+      ├── Scroll virtuale DOM (25 card/pag)                ├── Parse Statico Istantaneo (0.05s)
+      └── Skip rapido seen_urls O(1)                       └── Bubble MouseEvent (Zero Stalli)
+                     │                                                   │
+                     └─────────────────────────┬─────────────────────────┘
+                                               ▼
+                               [ Deduplicazione Multi-Livello ]
+                              ├── Livello 1: SHA-256 esatto (0 token)
+                              └── Livello 2: Fuzzy Token Jaccard + Conferma Lampo Gemini
+                                               │
+                                               ▼
+                              [ JobEvaluator: Gemini 3.8 Flash ]
+                              ├── Pre-filtro Blacklist Agenzie a monte (se abilitato)
+                              ├── Valutazione semantica con Tassonomia Universale (10 Enum)
+                              ├── Auto-apprendimento dinamico in data/learned_agencies.json
+                              └── Scrittura progressiva con Testo Integrale in history.csv
+                                               │
+                         ┌─────────────────────┴─────────────────────┐
+                         ▼                                           ▼
+                  Se [SCARTATO]                                 Se [MATCH]
+                  Fine elaborazione                                  │
+                                                                     ▼
+                                                     [ ContactHunter: LangGraph + Tavily ]
+                                                     ├── Caccia agli Hiring Manager su LinkedIn
+                                                     └── Deduzione pattern email aziendale
+                                                                     │
+                                                                     ▼
+                                                     [ WhatsAppNotifier: CallMeBot ]
+                                                     Alert istantaneo con Fit Score, Contatti e Link
+                                                                     │
+                                                                     ▼
+                                                     [ Streamlit UI Dashboard ]
+                                                     Visualizzazione, lettura offline e azioni 1-click
 ```
+
+---
+
+## ☁️ Infrastruttura Cloud & Produzione
+
+L'applicazione è ospitata su infrastruttura cloud dedicata ad alte prestazioni:
+
+```
+                            INTERNET (Utenti & Browser)
+                                         │
+                               HTTPS (Porta 443) / HTTP (Porta 80)
+                                         ▼
+                      ┌─────────────────────────────────────┐
+                      │    HETZNER CLOUD HARDWARE FIREWALL  │
+                      │    Porte ammesse: 22, 80, 443       │
+                      │    Porta 8501: TOTALMENTE BLOCCATA   │
+                      └──────────────────┬──────────────────┘
+                                         ▼
+                      ┌─────────────────────────────────────┐
+                      │        CADDY REVERSE PROXY          │
+                      │  - Certificato SSL Let's Encrypt    │
+                      │  - Dominio: my-job-finder.duckdns.org│
+                      │  - HTTP Basic Auth (Bcrypt Cifrato) │
+                      │  - Utenti: admin, bartoli           │
+                      └──────────────────┬──────────────────┘
+                                         │ Rete interna Docker privata (jobfinder-net)
+                                         ▼
+        ┌────────────────────────────────┴────────────────────────────────┐
+        ▼                                                                 ▼
+┌──────────────────────────────┐                   ┌──────────────────────────────┐
+│  ai_job_finder_ui            │                   │  ai_job_finder_scheduler     │
+│  - Web Dashboard Streamlit   │                   │  - Demone Continuo 24/7      │
+│  - Fragment Live Auto-Refresh│                   │  - Timezone Europe/Rome      │
+│  - Porta 8501 (Solo interna) │                   │  - Hot-Reloading Config      │
+└──────────────┬───────────────┘                   └──────────────┬───────────────┘
+               │                                                  │
+               └───────────────────────┬──────────────────────────┘
+                                       │ Volume Persistente Condiviso
+                                       ▼
+                       ┌──────────────────────────────┐
+                       │    PERSISTENT STORAGE        │
+                       │    - history.csv             │
+                       │    - data/config.json        │
+                       │    - data/scheduler_state.json│
+                       │    - data/learned_agencies.json
+                       │    - linkedin_session.json   │
+                       │    - indeed_session.json     │
+                       └──────────────────────────────┘
+```
+
+### Specifiche Tecniche del Server:
+* **Provider**: Hetzner Cloud (Datacenter Norimberga `nbg1`).
+* **Hardware**: Server `cx23` (2 vCPU x86_64, 4 GB RAM, 40 GB NVMe SSD, 2 GB Swap attivo).
+* **Traffico**: 20 TB/mese inclusi a banda 1 Gbps.
+* **Costo**: Solo **0,0088 €/ora** (massimo **~6,70 €/mese con IVA**).
+* **Dominio Pubblico**: `https://my-job-finder.duckdns.org` con rinnovo automatico certificati TLS 1.3 Let's Encrypt.
+* **Sicurezza "Defense in Depth"**:
+  1. **Firewall Hardware**: porta 8501 rimossa dall'esterno per impedire bypass del proxy.
+  2. **Isolamento Docker**: il container Streamlit è esposto solo all'interno del bridge privato `jobfinder-net`.
+  3. **Bcrypt Authentication**: Caddy intercetta qualsiasi tentativo non autorizzato con `401 Unauthorized` a monte, proteggendo il backend da bot, crawler e scanner di rete.
 
 ---
 
 ## 🌐 Tecnologie e Moduli Chiave
 
-- **Linguaggio**: Python 3.10+ (testato su Python 3.14).
-- **Browser Automation**: Playwright + `playwright-stealth` (Chromium anti-detection).
-- **AI & LLM**: Google Gemini 3.8 Flash (tramite Gemini API nativa / OpenRouter).
-- **Orchestrazione Agenti**: LangGraph + LangChain Core.
+- **Linguaggio**: Python 3.10+ (Playwright Jammy base image).
+- **Browser Automation**: Playwright + `playwright-stealth` (Chromium anti-detection, headless shell v1243).
+- **AI & LLM**: Google Gemini 3.8 Flash (`gemini-2.5-flash` tramite OpenRouter e API nativa).
+- **Orchestrazione Agenti**: LangGraph + LangChain Core + LangChain OpenAI.
 - **Search Engine API**: Tavily Search API.
-- **Notifiche**: CallMeBot WhatsApp API (100% gratuito, senza limiti temporali di sandbox).
-- **Frontend Dashboard**: Streamlit (interfaccia web locale interattiva e reattiva).
-- **Orchestrazione Schedulata**: Windows Task Scheduler (`.bat` / `.ps1`) e Docker/Docker-Compose (`src/scheduler.py`).
+- **Notifiche**: CallMeBot WhatsApp API (100% gratuito e senza vincoli sandbox).
+- **Frontend Dashboard**: Streamlit v1.64+ (componenti reattivi, `@st.fragment` e custom CSS).
+- **Web Server & Reverse Proxy**: Caddy 2.8 Alpine con ACME Let's Encrypt automatico e Bcrypt Basic Auth.
+- **Orchestrazione Container**: Docker Engine + Docker Compose v2.
 
 ---
 
@@ -119,37 +187,39 @@ Modulo: [`src/scraper/indeed_scraper.py`](file:///c:/Users/borgi/projects/AI-Job
 - **Login Autonomo via Email OTP (IMAP Gmail)**:
   - Per superare il blocco forzato di Indeed alla Pagina 2 (`branding=page-two-signin`), [`src/scraper/auth_manager.py`](file:///c:/Users/borgi/projects/AI-Job-Finder/src/scraper/auth_manager.py) gestisce il login autonomo: Playwright inserisce l'email, clicca *"Accedi con un codice"*, legge via IMAP sicuro la casella Gmail, estrae il codice a 6 cifre e si autentica salvando `indeed_session.json`.
 - **Risoluzione Definitiva dello Stallo (Zero Detached Locators)**:
-  - *Problema risolto*: Il click nativo su tag `<a>` causava deviazioni su pagine esterne/sponsorizzate (`/pagead/clk`), e il successivo `go_back()` distruggeva i puntatori DOM scatenando il timeout Playwright di 30 secondi a card (7.5 minuti di freeze a query!).
-  - *Nuova Architettura*:
-    1. **Parsing Statico Immediato**: Tutte le 16 card della pagina vengono lette via BeautifulSoup in **0.05 secondi**.
-    2. **Deduplicazione a Zero Latenza**: Se l'URL o il `data-jk` è già nello storico, viene saltato all'istante senza toccare il browser.
-    3. **Apertura Pannello Sicura**: Apertura tramite `MouseEvent` con bubbling sintetico sull'intestazione (senza navigare via dall'URL di ricerca).
-    4. **Timeout Rigido a 800ms con Fallback**: Se il pannello destro `#jobsearch-ViewjobPaneWrapper` non carica entro 800ms, il testo dell'annuncio viene recuperato direttamente dalla card HTML, azzerando qualsiasi rischio di blocco.
+  1. **Parsing Statico Immediato**: Tutte le 16 card della pagina vengono lette via BeautifulSoup in **0.05 secondi**.
+  2. **Deduplicazione a Zero Latenza**: Se l'URL o il `data-jk` è già nello storico, viene saltato all'istante senza toccare il browser.
+  3. **Apertura Pannello Sicura**: Apertura tramite `MouseEvent` con bubbling sintetico sull'intestazione (senza navigare via dall'URL di ricerca).
+  4. **Timeout Rigido a 800ms con Fallback**: Se il pannello destro `#jobsearch-ViewjobPaneWrapper` non carica entro 800ms, il testo dell'annuncio viene recuperato direttamente dalla card HTML.
 - **Paginazione Multi-Pagina Fluida**: Scansiona `start=0`, `start=10`, `start=20` con tab isolati per prevenire sfide Cloudflare Turnstile.
 - **Descrizioni Integrali Preservate**: Estrazione del testo completo da `.simple-job-description-html` e `#jobDescriptionText` (fino a 6.900+ caratteri).
 
 ---
 
-## 🧠 Valutazione Semantica con AI (Job Evaluator)
+## 🧠 Valutazione Semantica con AI & Tassonomia Universale
 
 Modulo: [`src/evaluator/job_evaluator.py`](file:///c:/Users/borgi/projects/AI-Job-Finder/src/evaluator/job_evaluator.py)
 
-- **Modello**: Google **Gemini 3.8 Flash** (`gemini-2.5-flash`).
-- **Tassonomia dei Rifiuti Rigorosa (`RejectionReason` Enum)**:
-  - `AGENZIA`: Agenzie per il lavoro o società di selezione (escluso il caso di somministrazione su cliente finale).
-  - `LOCATION_ERRATA`: Presenza/ibrido fuori da Bari e provincia, o assenza di full-remote.
-  - `NOT_HR`: Ruolo non appartenente alle Risorse Umane (es. commerciale, tecnico, magazzino, accoglienza).
-  - `CATEGORIA_PROTETTA`: Offerte riservate a L. 68/99.
-  - `LINGUA`: Richiesta lingua vincolante non posseduta.
-  - `MANCANZA_DATI`: Descrizione insufficiente.
-- **Auto-Apprendimento Blacklist (`data/learned_agencies.json`)**:
-  - Quando Gemini riconosce un'agenzia di headhunting o selezione pura (es. *Hunters Group, Chaberton, Ali Professional, Only Job*), il suo nome normalizzato viene memorizzato su file JSON. Nelle successive scansioni, gli annunci di tali aziende vengono **scartati a monte a zero token**.
+- **Modello**: Google **Gemini 3.8 Flash** (`google/gemini-3.8-flash`).
+- **Tassonomia dei Rifiuti Generalizzata (`RejectionReason` Enum)**:
+  - `RUOLO_NON_ATTINENTE`: Ruolo o mansioni non compatibili con il profilo (sostituisce e generalizza `NOT_HR`).
+  - `LOCATION_INCOMPATIBILE`: Sede non raggiungibile o assenza di smart working/remoto richiesto (retrocompatibile con `LOCATION_ERRATA`).
+  - `AGENZIA`: Agenzie per il lavoro, società di somministrazione o headhunting escluse dai vincoli.
+  - `SENIORITY_INCOMPATIBILE`: Livello di esperienza/seniority non allineato (se il profilo lo impone come vincolo).
+  - `CONTRATTO_INCOMPATIBILE`: Tipologia contrattuale non conforme (es. stage non retribuito o P.IVA se rifiutati).
+  - `COMPETENZE_MANCANTI`: Mancanza di requisiti tecnici o certificazioni essenziali e bloccanti.
+  - `CATEGORIA_PROTETTA`: Offerte riservate a Categorie Protette (L. 68/99).
+  - `LINGUA`: Richiesta fluente di lingue non possedute.
+  - `MANCANZA_DATI`: Descrizione troppo generica o priva di dettagli essenziali.
+  - `ALTRO`: Qualsiasi altra motivazione specifica spiegata nel reasoning.
+- **Filtro Agenzie Configurabile (`exclude_agencies`)**:
+  - Quando **ATTIVO**: il system prompt include la regola per scartare le agenzie, attiva il pre-filtro a monte a zero token e memorizza le nuove società scartate in `learned_agencies.json`.
+  - Quando **DISATTIVATO**: il prompt omette completamente la regola agenzie, consentendo la valutazione neutra di offerte da intermediari, società di consulenza o headhunter.
 
 ---
 
 ## ⚡ Deduplicazione Multi-Livello & Scalabilità
 
-Per garantire che lo script non rallenti mai nel corso delle settimane:
 1. **Deduplicazione URL $O(1)$**: Ricerca istantanea su `set()` in memoria degli URL già processati.
 2. **Fingerprint SHA-256 (`Content_Hash`)**:
    $$Content\_Hash = \text{SHA256}(\text{Azienda} + \text{Titolo} + \text{Testo})$$
@@ -158,7 +228,7 @@ Per garantire che lo script non rallenti mai nel corso delle settimane:
    - *Fase 1 (Locale)*: Jaccard similarity su parole chiave di azienda, titolo e vocabolario annuncio.
    - *Fase 2 (Verifica Gemini)*: Mini-query binaria lampo per confermare se due annunci cross-platform rappresentano la stessa posizione lavorativa.
 4. **Scalabilità dello Storico**:
-   - Con oltre 400 record già memorizzati, la lettura di `history.csv` richiede meno di **0.02 secondi**. Il sistema supporta agevolmente decine di migliaia di righe senza degrado prestazionale.
+   - Con centinaia di record già memorizzati, la lettura di `history.csv` richiede meno di **0.02 secondi**.
 
 ---
 
@@ -172,128 +242,126 @@ Attivato esclusivamente per le offerte con esito `is_match = True`:
 ```
 - Formula query mirate per individuare l'Hiring Manager o il Talent Acquisition Lead dell'azienda.
 - Esegue ricerche sul web tramite Tavily filtrando su `linkedin.com/in/`.
-- Dedurrà e mapperà il profilo del referente e il pattern email aziendale più probabile (es. `nome.cognome@azienda.it`).
+- Deduce e mappa il profilo del referente e il pattern email aziendale più probabile (es. `nome.cognome@azienda.it`).
 
 ---
 
-## 📱 Notifiche WhatsApp (CallMeBot)
+## 📱 Notifiche WhatsApp Multi-Destinatario (CallMeBot)
 
 Modulo: [`src/notifier/whatsapp_notifier.py`](file:///c:/Users/borgi/projects/AI-Job-Finder/src/notifier/whatsapp_notifier.py)
 
-- **100% Gratuito e Illimitato**: Utilizza l'API di CallMeBot collegata al numero WhatsApp personale.
-- **Nessuna Scadenza Sandbox**: Supera i limiti di Twilio Sandbox (che richiede riattivazione ogni 72 ore).
+- **100% Gratuito, Diretto e Illimitato**: Utilizza l'API di CallMeBot collegata ai numeri WhatsApp personali senza limiti di sandbox o scadenze di 24 ore.
+- **Supporto Multi-Destinatario / Multi-API-Key**: Ogni membro del team o candidato può configurare il proprio numero WhatsApp con la propria API Key CallMeBot personale generata via chat.
+- **Configurazione da Web UI**: Gestione completa direttamente dalla Tab 4 della dashboard (Aggiungi, Attiva/Disattiva, Rimuovi, Invia Notifica di Test 1-click).
+- **Auto-Discovery da `.env`**: Rilevamento e migrazione automatica trasparente delle variabili `CALLMEBOT_API_KEY`, `USER_WHATSAPP_NUMBER`, `CALLMEBOT_API_KEY_2`, ecc. in `data/config.json`.
 - **Formato Notifica**:
   ```text
   🚀 *Nuovo Match Lavorativo!*
 
-  💼 *Ruolo:* Sales Recruiter
-  🏢 *Azienda:* Sovera Credit Partners
+  💼 *Ruolo:* HR Generalist
+  🏢 *Azienda:* Azienda Esempio S.p.A.
   🎯 *Fit Score:* 95/100
 
   👥 *Contatti Trovati:*
-  - Mario Rossi (Head of Talent): m.rossi@sovera.com
+  - Mario Rossi (Head of HR): m.rossi@azienda.it
 
   🔗 *Link Annuncio:* https://www.linkedin.com/jobs/view/...
   ```
 
 ---
 
-## 💻 Web Dashboard Interattiva (Streamlit)
+## 💻 Web Dashboard Interattiva v2.0 (Streamlit)
 
 Modulo: [`src/ui/app.py`](file:///c:/Users/borgi/projects/AI-Job-Finder/src/ui/app.py)
 
-Dashboard reattiva creata per consentire alla candidata di gestire comodamente il flusso delle offerte:
+Interfaccia reattiva moderna conforme ai principi **Impeccable** (gerarchia visiva pulita, contrasto AAA, zero layout-shift):
 
-- **Metriche KPI Live**: Totale esaminati, contatore match (con delta non letti), annunci scartati, split LinkedIn / Indeed.
-- **🎯 Tab Match Lavorativi**:
-  - Schede visive con badge per piattaforma e data.
-  - Box informativo con il verdetto analitico di **Gemini 3.8 Flash**.
-  - **Accordion con Descrizione Integrale**: Lettura dell'intero annuncio offline senza troncamenti.
-  - **Pulsanti di Stato a 1-Click**: `Mark: Letto`, `🚀 Segna Candidato`, `📁 Archivia`, `↩️ Ripristina Non Letto` (con aggiornamento bidirezionale immediato su `history.csv`).
-  - **Pulsante Candidati ↗**: Apertura diretta dell'annuncio originale.
-- **📋 Tab Offerte Scartate**: Tabella interattiva ricercabile con filtro per motivo di scarto (`AGENZIA`, `LOCATION_ERRATA`, `NOT_HR`).
-- **🛡️ Tab Blacklist Agenzie AI**: Visualizzatore ed editor reattivo per aggiungere o rimuovere agenzie dalla blacklist con un click.
-- **Avvio Istantaneo (Windows)**: Doppio clic sul file [`scripts/run_ui.bat`](file:///c:/Users/borgi/projects/AI-Job-Finder/scripts/run_ui.bat).
-
----
-
-## ⏰ Automazione & Schedulazione
-
-### 1. Windows Task Scheduler (Locale)
-Gli script automatizzati sono configurati per eseguire il job due volte al giorno:
-- **Mattina**: ore **08:30**
-- **Sera**: ore **18:00**
-
-Configurazione rapida via PowerShell (Amministratore):
-```powershell
-.\scripts\setup_windows_task.ps1
-```
-Oppure esecuzione manuale via batch:
-```cmd
-.\scripts\run_daily.bat
-```
-
-### 2. Docker & Cloud VPS (Pronto per il Deploy)
-- [`Dockerfile`](file:///c:/Users/borgi/projects/AI-Job-Finder/Dockerfile) & [`docker-compose.yml`](file:///c:/Users/borgi/projects/AI-Job-Finder/docker-compose.yml) basati su `mcr.microsoft.com/playwright/python:v1.49.1-jammy`.
-- [`src/scheduler.py`](file:///c:/Users/borgi/projects/AI-Job-Finder/src/scheduler.py): demone con libreria `schedule` per esecuzione autonoma 24/7 su VPS Linux (Hetzner, DigitalOcean, AWS).
+1. **Tab 1: 🎯 Opportunità Lavorative Valide**:
+   - Schede incapsulate con badge colorati per piattaforma, data e fit score.
+   - Accordion con descrizione integrale dell'annuncio per lettura offline.
+   - Azioni 1-click: `Mark: Letto`, `🚀 Segna Candidato`, `📁 Archivia`, `↩️ Ripristina`.
+2. **Tab 2: 📋 Archivio Offerte Scartate**:
+   - Tabella interattiva per l'audit dei motivi di esclusione con filtri per tag canonico, piattaforma e ricerca testuale.
+3. **Tab 3: 🛡️ Gestione Blacklist Agenzie**:
+   - Banner dinamico sullo stato del filtro (`ATTIVO` o `DISATTIVATO`).
+   - Aggiunta manuale e rimozione protetta delle aziende in blacklist.
+4. **Tab 4: ⚙️ Configurazione & Schedulazione**:
+   - **Monitor Live con `@st.fragment(run_every=4)`**: aggiornamento automatico dello stato e della fase di scansione ogni 4 secondi senza ricaricare la pagina.
+   - **Pulsante "🚀 Avvia Scansione Adesso"**: trigger manuale istantaneo delegato al demone di background.
+   - **Editor Orari**: gestione flessibile degli slot giornalieri con validazione `HH:MM`.
+   - **Canali WhatsApp (CallMeBot)**: gestione completa dei destinatari, test istantaneo di recapito e toggle globale on/off.
+   - **Editor Profilo Candidato**: textarea per personalizzare le istruzioni AI e toggle `🛡️ Escludi Agenzie ed Headhunting`.
+   - **Editor Query di Ricerca**: configurazione parole chiave e località per LinkedIn e Indeed.
+   - **Guida Tassonomia Rifiuti**: tabella esplicativa dei 10 codici di scarto.
+5. **Tab 5: 📜 Log & Diagnostica Live**:
+   - **Live Streaming (`@st.fragment(run_every=3)`)**: console ad alto contrasto con aggiornamento in tempo reale riga per riga.
+   - **Filtri di Categoria**: visualizzazione isolata per *AI Gemini*, *LinkedIn*, *Indeed (Security Checks)*, *Contact Hunter* o *WhatsApp*.
+   - **Ricerca Testuale**: full-text search immediato nei log per individuare errori, aziende o motivi di scarto.
+   - **Metriche Real-Time**: conteggio eventi, blocchi Cloudflare e match calcolati live.
+   - **Esportazione 1-Click**: download del file `.log` completo per archiviazione e audit.
 
 ---
 
-## ⚙️ Configurazione e Guida Rapida
+## ⏰ Automazione & Schedulazione Continua
 
-### 1. Prerequisiti
-- Python 3.10 o superiore.
-- Google Chrome / Chromium installato via Playwright.
+Modulo: [`src/scheduler.py`](file:///c:/Users/borgi/projects/AI-Job-Finder/src/scheduler.py)
 
-### 2. Installazione
-```bash
-# Creazione e attivazione virtualenv
-python -m venv venv
-.\venv\Scripts\activate   # Windows
-# source venv/bin/activate # Linux/Mac
+- **Demone Continuo 24/7**: Esegue in background come container dedicato con policy `restart: unless-stopped`.
+- **Timezone**: Sincronizzato con il fuso orario italiano (`Europe/Rome`).
+- **Hot-Reloading**: Ricarica a caldo le modifiche orarie e i criteri di ricerca salvati in `data/config.json` senza bisogno di riavviare il servizio.
+- **Esecuzione Isolata**: Lancia `src/main.py` in un sottoprocesso separato con `PYTHONUNBUFFERED=1`, garantendo la massima resilienza e aggiornando costantemente `data/scheduler_state.json`.
 
-# Installazione dipendenze
-pip install -r requirements.txt
+---
 
-# Installazione browser Playwright
-playwright install chromium
-```
+## 🚀 Configurazione, Deploy Rapido e Manutenzione
 
-### 3. File di Configurazione (`.env`)
-Creare il file `.env` nella radice del progetto:
+### 1. File di Configurazione (`.env`)
 ```env
-# AI & Search
+# AI & LLM (OpenRouter / Gemini)
+OPENROUTER_API_KEY=sk-or-v1-...
 GEMINI_API_KEY=AQ.Ab8...
 TAVILY_API_KEY=tvly-...
 
-# Notifiche WhatsApp (CallMeBot Gratuito)
+# Notifiche WhatsApp
 CALLMEBOT_API_KEY=tuo_codice_callmebot
 USER_WHATSAPP_NUMBER=whatsapp:+393XXXXXXXXX
 
-# LinkedIn (Autenticazione Stealth)
+# LinkedIn (Cookie Stealth)
 LINKEDIN_EMAIL=tua_email@gmail.com
 LINKEDIN_PASSWORD=tua_password
 
-# Indeed (Autenticazione Autonoma via OTP Gmail)
+# Indeed (OTP via Gmail IMAP)
 INDEED_EMAIL=tua_email@gmail.com
 INDEED_IMAP_USER=tua_email@gmail.com
-INDEED_IMAP_PASSWORD=app_password_gmail_16_caratteri
+INDEED_IMAP_PASSWORD=app_password_16_caratteri
 ```
 
-### 4. Comandi di Esecuzione
+### 2. Deploy Rapido su VPS con 1 Comando (PowerShell)
+Dal tuo PC locale Windows:
+```powershell
+.\deploy\deploy_to_vps.ps1
+```
+Lo script sincronizza automaticamente `src/`, file di configurazione, aggiorna l'immagine Docker e riavvia i container sul server Hetzner.
 
-- **Esecuzione Scansione Giornaliera**:
-  ```powershell
-  $env:PYTHONPATH="."
-  .\venv\Scripts\python -u src/main.py
-  ```
-- **Avvio Web Dashboard Streamlit**:
-  ```powershell
-  .\venv\Scripts\streamlit run src/ui/app.py
-  # oppure doppio clic su: .\scripts\run_ui.bat
-  ```
+### 3. Comandi di Gestione da Remoto (SSH)
+```bash
+# Connessione al server
+ssh root@195.201.148.129
+
+# Stato dei container
+docker compose -f /opt/ai-job-finder/docker-compose.prod.yml ps
+
+# Seguire i log in diretta dello schedulatore
+docker compose -f /opt/ai-job-finder/docker-compose.prod.yml logs -f ai-job-finder-scheduler
+
+# Seguire i log della Web UI
+docker compose -f /opt/ai-job-finder/docker-compose.prod.yml logs -f ai-job-finder-ui
+
+# Riavvio stack completo
+docker compose -f /opt/ai-job-finder/docker-compose.prod.yml restart
+```
 
 ---
 
 ## 📄 Licenza e Manutenibilità
-Progetto open-source a uso privato, rilasciato sotto licenza MIT. Tutti i cookie e i dati sensibili sono protetti tramite `.gitignore`.
+Progetto open-source a uso privato, rilasciato sotto licenza MIT. Tutti i cookie, le credenziali e i dati personali sono protetti tramite `.gitignore`.
