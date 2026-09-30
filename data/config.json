@@ -116,5 +116,12 @@
         "enabled": true
       }
     ]
+  },
+  "session_check": {
+    "enabled": true,
+    "times": [
+      "12:00"
+    ],
+    "target_phone": "3925435261"
   }
 }

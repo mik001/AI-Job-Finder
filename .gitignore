@@ -13,6 +13,8 @@ indeed_session.json
 # Debugging artifacts and HTML dumps
 *.html
 history.csv
+data/*.log
+data/last_session_alert.json
 
 # Python
 __pycache__/

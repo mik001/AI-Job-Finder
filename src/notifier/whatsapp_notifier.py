@@ -114,10 +114,7 @@ class WhatsAppNotifier:
                 "apikey": clean_apikey
             })
             req_url = f"https://api.callmebot.com/whatsapp.php?{params}"
-            req = urllib.request.Request(
-                req_url, 
-                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AIJobFinder/2.0"}
-            )
+            req = urllib.request.Request(req_url)
             with urllib.request.urlopen(req, timeout=15) as resp:
                 resp_text = resp.read().decode("utf-8", errors="ignore")
                 
@@ -206,6 +203,56 @@ class WhatsAppNotifier:
                 print(f"[-] Errore invio notifica Twilio: {e}")
                 
         print("[!] Notifica WhatsApp non inviata (nessun destinatario attivo ha ricevuto il messaggio).")
+
+    def send_session_alert(self, target_phone: str = "3925435261", platform: str = "Indeed", details: str = "") -> Tuple[bool, str]:
+        """
+        Invia un alert di sessione scaduta/invalida ESCLUSIVAMENTE al numero specificato (es. 3925435261).
+        """
+        clean_target = self.normalize_phone(target_phone)
+        apikey = None
+        recipient_name = "Michele"
+
+        for r in self.callmebot_recipients:
+            r_phone = self.normalize_phone(r["phone"])
+            if r_phone.endswith(target_phone) or target_phone.endswith(r_phone) or r_phone == clean_target:
+                apikey = r["apikey"]
+                recipient_name = r.get("name", "Michele")
+                clean_target = r_phone
+                break
+
+        if not apikey:
+            cfg = ConfigManager.get_whatsapp_config()
+            for ch in cfg.get("channels", []):
+                p = self.normalize_phone(ch.get("phone", ""))
+                if p.endswith(target_phone) or target_phone.endswith(p):
+                    apikey = str(ch.get("apikey", "")).strip()
+                    recipient_name = ch.get("name", "Michele")
+                    clean_target = p
+                    break
+
+        if not apikey:
+            print(f"[-] [WhatsApp] Nessuna API Key CallMeBot trovata per il numero target {target_phone}.")
+            return False, f"Nessuna API Key per {target_phone}"
+
+        message_body = (
+            f"🔔 *AI Job Finder - Avviso Sessione {platform}*\n\n"
+            f"Ciao {recipient_name}! 👋\n"
+            f"La sessione {platform} salvata sul server VPS e scaduta o richiede rinnovo.\n\n"
+            f"👉 *Come rinnovarla (30 secondi):*\n"
+            f"1. Dal tuo PC, apri la cartella del progetto.\n"
+            f"2. Fai doppio clic su login_indeed.bat.\n"
+            f"3. Clicca sul captcha ed effettua il login: la sessione verra sincronizzata automaticamente sul server!\n\n"
+            f"ℹ️ *Nota:* Nel frattempo il bot continua regolarmente ad estrarre le offerte LinkedIn e le offerte {platform} tramite Search Index."
+        )
+        if details:
+            message_body += f"\n\nStato: {details}"
+
+        success, msg = self.send_callmebot_message(clean_target, apikey, message_body)
+        if success:
+            print(f"[+] [WhatsApp] Alert sessione {platform} inviato con successo a {clean_target}!")
+        else:
+            print(f"[-] [WhatsApp] Errore invio alert sessione a {clean_target}: {msg}")
+        return success, msg
 
 if __name__ == "__main__":
     notifier = WhatsAppNotifier()

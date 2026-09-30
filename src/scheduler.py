@@ -162,6 +162,7 @@ def main():
     )
     
     executed_slots_today = set()
+    session_checks_today = set()
     last_cleaned_day = None
     
     while True:
@@ -188,13 +189,14 @@ def main():
                 else:
                     print("[-] Scansione già in corso: richiesta manuale ignorata.")
 
-            # 3. Controllo Schedulazione Automatica (se abilitata)
+            # 3. Controllo Schedulazione Automatica Scraping (se abilitata)
             now = get_current_time()
             today_str = now.strftime("%Y-%m-%d")
             
             # Reset giornaliero degli slot già eseguiti
             if last_cleaned_day != today_str:
                 executed_slots_today.clear()
+                session_checks_today.clear()
                 last_cleaned_day = today_str
 
             if is_enabled and not state.get("is_running"):
@@ -209,6 +211,27 @@ def main():
                         executed_slots_today.add(slot_key)
                         run_pipeline(reason=f"Slot orario programmato: {t_str}")
                         ConfigManager.update_scheduler_state(next_run=compute_next_run(times_list, is_enabled))
+                        break
+
+            # 4. Controllo Schedulazione Verifica Sessione Indeed (indipendente dai run)
+            session_cfg = ConfigManager.get_session_check_config()
+            if session_cfg.get("enabled", True):
+                check_times = session_cfg.get("times", ["12:00"])
+                target_phone = session_cfg.get("target_phone", "3925435261")
+                for c_str in check_times:
+                    parsed_c = parse_time_slot(c_str)
+                    if not parsed_c:
+                        continue
+                    ch_h, ch_m = parsed_c
+                    c_key = f"{today_str}_session_{ch_h:02d}_{ch_m:02d}"
+                    if now.hour == ch_h and now.minute == ch_m and c_key not in session_checks_today:
+                        session_checks_today.add(c_key)
+                        print(f"\n[{now.strftime('%Y-%m-%d %H:%M:%S')}] 🔍 Verifica schedulata sessione Indeed (target: {target_phone})...")
+                        try:
+                            from src.session_checker import verify_and_notify_session
+                            verify_and_notify_session(target_phone=target_phone)
+                        except Exception as sc_err:
+                            print(f"[-] Errore esecuzione verifica sessione: {sc_err}")
                         break
 
         except Exception as e:

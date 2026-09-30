@@ -66,6 +66,11 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "enabled": True,
         "max_saved_runs": 5,
         "capture_screenshots": True
+    },
+    "session_check": {
+        "enabled": True,
+        "times": ["12:00"],
+        "target_phone": "3925435261"
     }
 }
 
@@ -98,6 +103,8 @@ class ConfigManager:
                 merged["scheduling"].update(data["scheduling"])
             if "notifications" in data:
                 merged["notifications"].update(data["notifications"])
+            if "session_check" in data:
+                merged["session_check"].update(data["session_check"])
             return merged
         except Exception as e:
             logger.error(f"Errore lettura configurazione da {CONFIG_PATH}: {e}. Ritorno default.")
@@ -145,6 +152,15 @@ class ConfigManager:
     def get_scheduling_config(cls) -> Dict[str, Any]:
         cfg = cls.load_config()
         return cfg.get("scheduling", {"enabled": True, "times": ["08:30", "18:00"], "timezone": "Europe/Rome"})
+
+    @classmethod
+    def get_session_check_config(cls) -> Dict[str, Any]:
+        cfg = cls.load_config()
+        return cfg.get("session_check", {
+            "enabled": True,
+            "times": ["12:00"],
+            "target_phone": "3925435261"
+        })
 
     # --- Gestione Notifiche WhatsApp (CallMeBot Multi-Destinatario) ---
     @classmethod
