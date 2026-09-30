@@ -287,14 +287,15 @@ class AuthManager:
                 else:
                     try:
                         await page.goto("https://it.indeed.com/", wait_until="domcontentloaded", timeout=15000)
-                        await page.wait_for_timeout(1500)
-                        if "auth" in page.url or "login" in page.url:
+                        await page.wait_for_timeout(2000)
+                        title = (await page.title()).lower()
+                        if "just a moment" in title or "challenge" in title or "blocked" in title or "security check" in title:
+                            needs_login = True
+                        elif "auth" in page.url or "login" in page.url:
                             needs_login = True
                         else:
-                            # Verifichiamo se compare il pulsante di accesso non autenticato
-                            accedi = page.locator("a[href*='secure.indeed.com/auth'], a:has-text('Accedi')")
                             profile = page.locator("a[data-gnav-element-name='Profile'], [aria-label*='Profilo'], [aria-label*='Account']")
-                            if await accedi.count() > 0 and await profile.count() == 0:
+                            if await profile.count() == 0:
                                 needs_login = True
                     except Exception:
                         needs_login = True
