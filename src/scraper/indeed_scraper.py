@@ -18,12 +18,13 @@ class IndeedScraper:
         self.is_authenticated = os.path.exists(self.session_file)
 
     async def init_browser(self):
-        """Inizializza un browser Chromium dedicato con Playwright."""
+        """Inizializza un browser Chromium dedicato con Playwright e proxy residenziale se disponibile."""
         self.is_authenticated = os.path.exists(self.session_file)
         self.p = await async_playwright().start()
-        self.browser = await self.p.chromium.launch(
-            headless=True,
-            args=[
+        
+        launch_kwargs = {
+            "headless": True,
+            "args": [
                 '--disable-blink-features=AutomationControlled',
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
@@ -32,7 +33,24 @@ class IndeedScraper:
                 '--disable-dev-shm-usage',
                 '--lang=it-IT,it'
             ]
-        )
+        }
+        
+        proxy_url = os.getenv("INDEED_PROXY_SERVER", "socks5://172.18.0.1:1080")
+        if proxy_url:
+            try:
+                import socket
+                clean_host = proxy_url.split("://")[-1].split(":")[0]
+                clean_port = int(proxy_url.split(":")[-1])
+                s = socket.socket()
+                s.settimeout(0.5)
+                s.connect((clean_host, clean_port))
+                s.close()
+                launch_kwargs["proxy"] = {"server": proxy_url}
+                print(f"[*] [Indeed] Tunnel residenziale Iliadbox attivo: {proxy_url}", flush=True)
+            except Exception:
+                pass
+
+        self.browser = await self.p.chromium.launch(**launch_kwargs)
 
     async def close_browser(self):
         """Chiude le risorse del browser."""
@@ -128,28 +146,33 @@ class IndeedScraper:
 
                 page_title = await page.title()
                 if "security check" in page_title.lower() or "just a moment" in page_title.lower() or "challenge" in page_title.lower():
-                    print(f"[-] Security Check Cloudflare rilevato su Indeed per '{keywords}' (start={start}). Attendo risoluzione (6s)...", flush=True)
-                    await page.wait_for_timeout(6000)
-                    page_title = await page.title()
-                    if "security check" in page_title.lower() or "just a moment" in page_title.lower() or "challenge" in page_title.lower():
-                        # Tentativo interazione con eventuale checkbox turnstile
-                        try:
-                            frames = page.frames
-                            for f in frames:
-                                box = f.locator("input[type='checkbox'], #challenge-stage, .cf-turnstile")
-                                if await box.count() > 0:
-                                    await box.first.click()
-                                    await page.wait_for_timeout(4000)
-                                    break
-                        except Exception:
-                            pass
-                        page_title = await page.title()
+                    print(f"[*] Verifica Cloudflare rilevata su Indeed per '{keywords}' (start={start}). Risoluzione automatica...", flush=True)
+                    try:
+                        box_el = page.locator("#cf-box-container")
+                        if await box_el.count() > 0:
+                            box = await box_el.first.bounding_box()
+                            if box:
+                                await page.mouse.move(box['x'] + 28, box['y'] + (box['height'] / 2), steps=20)
+                                await page.wait_for_timeout(300)
+                                await page.mouse.down()
+                                await page.wait_for_timeout(100)
+                                await page.mouse.up()
+                                for _ in range(8):
+                                    await page.wait_for_timeout(1000)
+                                    page_title = await page.title()
+                                    if "security check" not in page_title.lower() and "ci siamo quasi" not in page_title.lower():
+                                        break
+                    except Exception:
+                        pass
 
+                    page_title = await page.title()
                     if "security check" in page_title.lower() or "just a moment" in page_title.lower() or "challenge" in page_title.lower():
                         print(f"[-] Pagina Indeed bloccata da verifica Cloudflare, proseguo.", flush=True)
                         if self.diagnostics:
                             await self.diagnostics.capture_screenshot(page, f"indeed_challenge_{keywords[:15]}")
                         break
+                    else:
+                        print(f"[+] [Indeed] Verifica Cloudflare superata con successo!", flush=True)
 
                 if self.diagnostics and start == 0:
                     await self.diagnostics.capture_screenshot(page, f"indeed_search_{keywords[:15]}")
