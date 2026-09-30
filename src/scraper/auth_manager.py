@@ -43,60 +43,244 @@ class AuthManager:
             
         return context
 
+    def _fetch_latest_linkedin_otp(self, imap_user: str, imap_pass: str, max_wait_sec: int = 90) -> str:
+        """Legge la casella IMAP in attesa del codice PIN inviato da LinkedIn."""
+        import imaplib
+        import email
+        import re
+        import time
+        from email.utils import parsedate_to_datetime
+        from datetime import datetime, timezone, timedelta
+        from email.header import decode_header
+        
+        print(f"[*] [IMAP] In ascolto su {imap_user} per il PIN di verifica LinkedIn (max {max_wait_sec}s)...", flush=True)
+        clean_pass = imap_pass.replace(" ", "")
+        start_time = time.time()
+        folders_to_try = ["LinkedIn", '"[Gmail]/Tutti i messaggi"', "INBOX"]
+        
+        while time.time() - start_time < max_wait_sec:
+            try:
+                mail = imaplib.IMAP4_SSL("imap.gmail.com")
+                mail.login(imap_user, clean_pass)
+                
+                for folder in folders_to_try:
+                    status, _ = mail.select(folder)
+                    if status != "OK":
+                        continue
+                    
+                    status, data = mail.search(None, '(OR FROM "linkedin" SUBJECT "codice")')
+                    if status != "OK" or not data or not data[0]:
+                        status, data = mail.search(None, '(FROM "linkedin")')
+                        
+                    if status == "OK" and data and data[0]:
+                        mail_ids = data[0].split()
+                        for m_id in reversed(mail_ids[-5:]):
+                            res, msg_data = mail.fetch(m_id, '(RFC822)')
+                            for response_part in msg_data:
+                                if isinstance(response_part, tuple):
+                                    msg = email.message_from_bytes(response_part[1])
+                                    subject = msg.get("Subject", "")
+                                    decoded_subj = ""
+                                    for part, enc in decode_header(subject):
+                                        if isinstance(part, bytes):
+                                            decoded_subj += part.decode(enc or "utf-8", errors="ignore")
+                                        else:
+                                            decoded_subj += str(part)
+                                    
+                                    # Verifica che l'email sia recente (entro gli ultimi 15 minuti)
+                                    date_hdr = msg.get("Date")
+                                    if date_hdr:
+                                        try:
+                                            msg_dt = parsedate_to_datetime(date_hdr)
+                                            if msg_dt.tzinfo is None:
+                                                msg_dt = msg_dt.replace(tzinfo=timezone.utc)
+                                            now = datetime.now(timezone.utc)
+                                            if (now - msg_dt).total_seconds() > 900:
+                                                continue
+                                        except Exception:
+                                            pass
+                                            
+                                    # 1. Cerca PIN a 6 cifre nell'oggetto
+                                    subj_codes = re.findall(r'\b(\d{6})\b', decoded_subj)
+                                    if subj_codes:
+                                        code = subj_codes[0]
+                                        print(f"[+] [IMAP] PIN LinkedIn estratto dall'oggetto: {code}", flush=True)
+                                        mail.logout()
+                                        return code
+                                        
+                                    # 2. Cerca PIN nel corpo dell'email
+                                    body = ""
+                                    if msg.is_multipart():
+                                        for part in msg.walk():
+                                            if part.get_content_type() in ("text/plain", "text/html"):
+                                                payload = part.get_payload(decode=True)
+                                                if payload:
+                                                    body += payload.decode(errors="ignore")
+                                    else:
+                                        payload = msg.get_payload(decode=True)
+                                        if payload:
+                                            body = payload.decode(errors="ignore")
+                                            
+                                    body_codes = re.findall(r'\b(\d{6})\b', body)
+                                    if body_codes:
+                                        code = body_codes[0]
+                                        print(f"[+] [IMAP] PIN LinkedIn estratto dal corpo: {code}", flush=True)
+                                        mail.logout()
+                                        return code
+                mail.logout()
+            except Exception:
+                pass
+            time.sleep(3)
+            
+        print("[-] [IMAP] Nessun PIN LinkedIn ricevuto entro il tempo limite.", flush=True)
+        return ""
+
     async def _handle_linkedin_login(self, page: Page):
         email = os.getenv("LINKEDIN_EMAIL")
         password = os.getenv("LINKEDIN_PASSWORD")
+        imap_user = os.getenv("LINKEDIN_IMAP_USER") or os.getenv("INDEED_IMAP_USER") or email
+        imap_pass = os.getenv("LINKEDIN_IMAP_PASSWORD") or os.getenv("INDEED_IMAP_PASSWORD")
         
         if not email or not password:
             raise ValueError("Credenziali LINKEDIN mancanti nel file .env")
 
+        print("\n" + "="*65)
+        print("🔑 AUTENTICAZIONE LINKEDIN (ACCESSO RISERVATO - MAI GUEST)")
+        print("="*65)
+        print(f"[*] Navigazione verso {self.login_url}...", flush=True)
+        
         try:
-            await page.goto(self.login_url)
-            # LinkedIn cambia spesso gli ID e inserisce honeypot nascosti. Filtriamo solo gli elementi visibili.
-            user_sel = "input#username:visible, input#session_key:visible, input[autocomplete='username']:visible, input[type='email']:visible, input[type='text']:visible"
-            pass_sel = "input#password:visible, input#session_password:visible, input[type='password']:visible"
+            await page.goto(self.login_url, wait_until="domcontentloaded", timeout=30000)
+            await page.wait_for_timeout(2000)
             
-            # 1. Cerchiamo l'email (se c'è la pagina "Bentornato", potrebbe mancare)
+            # Gestione banner cookie se presente
             try:
-                await page.wait_for_selector(user_sel, timeout=5000)
-                await page.locator(user_sel).first.type(email, delay=100)
-            except:
-                print("[*] Campo email non trovato. Probabile schermata 'Piacere di rivederti'.")
-            
-            # 2. Inseriamo la password
-            await page.wait_for_selector(pass_sel, timeout=10000)
-            await page.locator(pass_sel).first.type(password, delay=100)
-            
-            # Click e attesa navigazione
-            # Premiamo semplicemente Invio per fare submit ed evitare altri honeypot invisibili
-            await page.keyboard.press("Enter")
-            
-            # Attendi che il feed si carichi per confermare il login
-            await page.wait_for_url("**/feed/**", timeout=20000)
-            print("[+] Login LinkedIn completato con successo.")
+                cookie_btn = page.locator("button:has-text('Accetta'), button:has-text('Accept'), button#onetrust-accept-btn-handler").first
+                if await cookie_btn.count() > 0 and await cookie_btn.is_visible():
+                    await cookie_btn.click()
+                    await page.wait_for_timeout(500)
+            except Exception:
+                pass
+
+            # Loop dinamico di monitoraggio dello stato della pagina (fino a 60 secondi)
+            for attempt in range(60):
+                await page.wait_for_timeout(1000)
+                cur_url = page.url.lower()
+
+                # Caso 1: Siamo già nel feed di LinkedIn
+                if "/feed" in cur_url:
+                    print("[+] 🎉 Autenticato con successo nel feed di LinkedIn!", flush=True)
+                    return
+
+                # Caso 2: Checkpoint PIN di sicurezza rilevato (sfida email)
+                pin_input = page.locator("input#input__email_verification_pin, input[name='pin']").first
+                has_pin_visible = (await pin_input.count() > 0 and await pin_input.is_visible())
+                if "checkpoint" in cur_url or "challenge" in cur_url or has_pin_visible:
+                    print("[*] 🛡️ Rilevato Checkpoint di Sicurezza LinkedIn (Richiesta codice email).", flush=True)
+                    if not (imap_user and imap_pass):
+                        raise RuntimeError("Credenziali IMAP mancanti per risolvere il checkpoint PIN LinkedIn.")
+                    
+                    pin = self._fetch_latest_linkedin_otp(imap_user, imap_pass, max_wait_sec=90)
+                    if not pin:
+                        raise RuntimeError("Impossibile recuperare il PIN LinkedIn dalla casella email entro il timeout.")
+                    
+                    print(f"[*] Inserimento PIN LinkedIn ({pin})...", flush=True)
+                    if await pin_input.count() > 0:
+                        await pin_input.fill(pin)
+                    else:
+                        txt_inp = page.locator("input[type='text']:visible, input[type='tel']:visible, input[type='number']:visible").first
+                        await txt_inp.fill(pin)
+                        
+                    await page.wait_for_timeout(500)
+                    pin_btn = page.locator("button#email-pin-submit-button, button[type='submit']:visible, button:has-text('Invia'), button:has-text('Submit')").first
+                    if await pin_btn.count() > 0:
+                        await pin_btn.click()
+                    else:
+                        await pin_input.press("Enter")
+                    
+                    print("[*] PIN inviato. Attesa redirect a /feed/...", flush=True)
+                    for _ in range(20):
+                        await page.wait_for_timeout(1000)
+                        if "/feed" in page.url.lower():
+                            print("[+] 🎉 Checkpoint superato con successo! Login LinkedIn completato.", flush=True)
+                            return
+                    continue
+
+                # Caso 3: Modulo di Login visibile (email / password)
+                pass_field = page.locator("input#password:visible, input#session_password:visible, input[type='password']:visible").first
+                if await pass_field.count() > 0:
+                    user_field = page.locator("input#username:visible, input#session_key:visible, input[type='email']:visible, input[type='text']:visible").first
+                    if await user_field.count() > 0:
+                        try:
+                            user_val = await user_field.input_value()
+                            if not user_val:
+                                print(f"[*] Inserimento email: {email}", flush=True)
+                                await user_field.fill(email)
+                                await page.wait_for_timeout(300)
+                        except Exception:
+                            pass
+                    
+                    print("[*] Inserimento password LinkedIn...", flush=True)
+                    await pass_field.fill(password)
+                    await page.wait_for_timeout(300)
+                    
+                    submit_btn = page.locator("button[type='submit']:visible, button.btn__primary--large:visible").first
+                    if await submit_btn.count() > 0:
+                        await submit_btn.click()
+                    else:
+                        await pass_field.press("Enter")
+                    print("[*] Credenziali inviate. Attesa risposta da LinkedIn...", flush=True)
+                    await page.wait_for_timeout(3000)
+                    continue
+
+            # Se dopo tutti i tentativi non siamo su /feed/
+            if "/feed" in page.url.lower():
+                print("[+] Login LinkedIn completato con successo.", flush=True)
+                return
+            else:
+                raise RuntimeError(f"Login LinkedIn fallito. URL di destinazione: {page.url}")
+                
         except Exception as e:
-            print(f"[-] Errore durante il login: {e}")
-            await page.screenshot(path="linkedin_login_error.png")
+            print(f"[-] Errore durante il login LinkedIn: {e}", flush=True)
+            try:
+                os.makedirs("data", exist_ok=True)
+                await page.screenshot(path="data/linkedin_login_error.png")
+                print("[-] Screenshot salvato in data/linkedin_login_error.png", flush=True)
+            except Exception:
+                pass
             raise e
 
     async def perform_login_if_needed(self):
         """
         Controlla se siamo già loggati e, in caso contrario, esegue il login e salva la sessione.
-        Mostra una finestra non-headless se il login è necessario, per eventuali captcha.
         """
         async with async_playwright() as p:
             # Apriamo inizialmente headless per controllare se la sessione funziona
-            context = await self.get_context(p, headless=True)
+            context = await self.get_context(p, headless=True, silent=True)
             page = await context.new_page()
             await Stealth().apply_stealth_async(page)
             
             needs_login = False
             
-            print(f"[*] Verifico lo stato del login su {self.platform}...")
+            print(f"[*] Verifico lo stato del login su {self.platform}...", flush=True)
             if self.platform == "linkedin":
-                await page.goto("https://www.linkedin.com/feed/")
-                if "login" in page.url or "signup" in page.url:
+                if not os.path.exists(self.session_file):
                     needs_login = True
+                else:
+                    try:
+                        await page.goto("https://www.linkedin.com/feed/", wait_until="domcontentloaded", timeout=15000)
+                        await page.wait_for_timeout(2000)
+                        cur = page.url.lower()
+                        if "login" in cur or "signup" in cur or "checkpoint" in cur or "uas" in cur or "/feed" not in cur:
+                            needs_login = True
+                        else:
+                            # Verifichiamo la presenza di elementi autenticati
+                            nav = page.locator("nav.global-nav, .global-nav__me, a[href*='/in/'], button:has-text('Avvia un post'), div.feed-shared-update-v2")
+                            if await nav.count() == 0:
+                                needs_login = True
+                    except Exception as e:
+                        print(f"[-] Controllo sessione LinkedIn: {e}", flush=True)
+                        needs_login = True
             elif self.platform == "indeed":
                 if not os.path.exists(self.session_file):
                     needs_login = True
@@ -118,9 +302,10 @@ class AuthManager:
             await context.close()
 
             if needs_login:
-                print(f"[*] Sessione scaduta o inesistente per {self.platform}. Avvio procedura di login...")
-                # Riapriamo in modalità visibile (headless=False) per permettere all'utente di inserire il codice OTP
-                context = await self.get_context(p, headless=False)
+                print(f"[*] Sessione scaduta o inesistente per {self.platform}. Avvio procedura di autenticazione...", flush=True)
+                import sys
+                force_headless = os.getenv("HEADLESS", "true").lower() in ("true", "1") or (sys.platform != "win32" and not os.getenv("DISPLAY"))
+                context = await self.get_context(p, headless=force_headless)
                 page = await context.new_page()
                 await Stealth().apply_stealth_async(page)
                 
@@ -129,12 +314,12 @@ class AuthManager:
                 elif self.platform == "indeed":
                     await self._handle_indeed_login(page)
                 
-                # Salviamo la sessione
+                # Salviamo la sessione aggiornata
                 await context.storage_state(path=self.session_file)
-                print(f"[+] Sessione salvata in {self.session_file}")
+                print(f"[+] Sessione salvata con successo in {self.session_file}", flush=True)
                 await context.close()
             else:
-                print(f"[+] Sessione valida per {self.platform}.")
+                print(f"[+] Sessione valida per {self.platform}.", flush=True)
 
     def _fetch_latest_indeed_otp(self, imap_user: str, imap_pass: str, max_wait_sec: int = 60) -> str:
         """Legge la casella IMAP in attesa del codice OTP inviato da Indeed."""

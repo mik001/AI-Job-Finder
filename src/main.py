@@ -7,28 +7,40 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", line_buffering=True)
 
+# Dual-output logger che scrive contemporaneamente su console e su data/system_run.log
+LOG_FILE_PATH = os.path.join("data", "system_run.log")
+
+class TeeLogger:
+    def __init__(self, filepath, stream):
+        self.stream = stream
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        self.file = open(filepath, "a", encoding="utf-8", buffering=1)
+
+    def write(self, data):
+        self.stream.write(data)
+        try:
+            self.file.write(data)
+        except Exception:
+            pass
+
+    def flush(self):
+        self.stream.flush()
+        try:
+            self.file.flush()
+        except Exception:
+            pass
+
+if not isinstance(sys.stdout, TeeLogger):
+    sys.stdout = TeeLogger(LOG_FILE_PATH, sys.stdout)
+if not isinstance(sys.stderr, TeeLogger):
+    sys.stderr = TeeLogger(LOG_FILE_PATH, sys.stderr)
+
 from src.scraper.linkedin_scraper import LinkedInScraper
 from src.scraper.indeed_scraper import IndeedScraper
 from src.evaluator.job_evaluator import JobEvaluator
 from src.agents.contact_hunter import contact_hunter_app
 from src.notifier.whatsapp_notifier import WhatsAppNotifier
-
-# Configurazione del profilo della candidata
-CANDIDATE_PROFILE = """
-Candidata: 30 anni, 4 anni di esperienza nel settore HR come Recruiter (executive search in Randstad Professional e attualmente in somministrazione).
-Obiettivo Principale: Fare esperienza e lavorare come HR INTERNA all'interno del team di un'azienda cliente finale.
-Ruoli accettati: Recruiter interna, HR Generalist, HR Specialist, Talent Acquisition, People Operations, o altri ruoli HR.
-Località e Modalità di Lavoro: 
-- Accetta lavoro in sede o ibrido (es. un paio di giorni a settimana in ufficio) SOLO se a Bari o dintorni.
-- Accetta Full Remote (o ibrido con presenza rarissima in sede, es. 1 volta al mese) in tutta Italia.
-
-REGOLA FONDAMENTALE SU AGENZIE E SOMMINISTRAZIONE:
-- Categoricamente NO a ruoli interni di filiale presso agenzie per il lavoro (es. fare il recruiter di filiale in Adecco/Randstad/Manpower che seleziona per conto di terzi).
-- ACCETTATO CON VALUTAZIONE POSITIVA (is_match=True): Contratti di somministrazione o staff leasing (anche se emessi da Adecco, Randstad, ecc.) IN CUI LA CANDIDATA VIENE INSERITA A LAVORARE DENTRO IL TEAM HR DI UN'AZIENDA CLIENTE FINALE (es. "per conto di nostra azienda cliente cerchiamo HR Generalist/Recruiter"). Questa tipologia di lavoro in azienda terza è considerata un ottimo trampolino di lancio per fare esperienza aziendale ed è da considerare valida se rispetta la sede (Bari o Full Remote).
-
-ALTRE REGOLE MORBIDE (NON SCARTARE):
-- La seniority troppo alta (es. Senior/Manager), troppo bassa (es. Stage/Junior) o la modalità Freelance/P.IVA NON DEVONO essere un motivo di scarto. Includile nei 'cons' (warning) ma mantieni is_match=True se l'annuncio rispetta la sede e la natura del ruolo aziendale.
-"""
+from src.config_manager import ConfigManager
 
 import hashlib
 import re
@@ -104,31 +116,35 @@ async def main():
     print("🤖 AVVIO AI JOB FINDER 🤖")
     print("="*50 + "\n")
     
-    # 1. Inizializzazione Moduli
-    scraper = LinkedInScraper()
-    evaluator = JobEvaluator(user_profile=CANDIDATE_PROFILE)
-    notifier = WhatsAppNotifier()
+    from datetime import datetime
     
-    # Configuriamo un set di query strategiche e ampie per massimizzare il bacino di ricerca
-    search_queries = [
-        {"keywords": "Risorse Umane", "location": "Italia"},
-        {"keywords": "Human Resources", "location": "Italia"},
-        {"keywords": "HR", "location": "Italia"},
-        {"keywords": "Recruiter OR Recruiting", "location": "Italia"},
-        {"keywords": "Talent Acquisition", "location": "Italia"},
-        {"keywords": "HR Generalist OR HR Specialist", "location": "Italia"},
-        {"keywords": "People Culture", "location": "Italia"},
-        {"keywords": "People Operations", "location": "Italia"},
-        {"keywords": "Talent Partner OR Talent Specialist", "location": "Italia"},
-        {"keywords": "HR Business Partner OR HRBP", "location": "Italia"},
-        {"keywords": "Selezione del Personale", "location": "Italia"},
-        # Focus Locale Mirato (Bari & Puglia)
-        {"keywords": "Risorse Umane", "location": "Bari"},
-        {"keywords": "HR", "location": "Puglia"},
-        {"keywords": "Recruiter", "location": "Bari"},
-        {"keywords": "Talent Acquisition", "location": "Puglia"},
-        {"keywords": "Selezione del Personale", "location": "Bari"}
-    ]
+    # 1. Caricamento Dinamico Configurazione e Profilo
+    app_config = ConfigManager.load_config()
+    candidate_cfg = app_config.get("candidate", {})
+    candidate_profile = ConfigManager.get_candidate_profile()
+    exclude_agencies = candidate_cfg.get("exclude_agencies", True)
+    search_queries = ConfigManager.get_active_search_queries()
+    max_results_linkedin = app_config.get("search", {}).get("max_results_linkedin", 50)
+    max_results_indeed = app_config.get("search", {}).get("max_results_indeed", 30)
+    role_title = candidate_cfg.get("role_title", "Candidato")
+    
+    print(f"[*] Profilo target attivo: {role_title}")
+    print(f"[*] Filtro esclusione agenzie/headhunting: {'ATTIVO' if exclude_agencies else 'DISATTIVATO'}")
+    print(f"[*] Query di ricerca attive: {len(search_queries)}")
+    
+    ConfigManager.update_scheduler_state(
+        is_running=True,
+        pid=os.getpid(),
+        last_run_start=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        last_status="RUNNING",
+        current_step="Inizializzazione scraper...",
+        last_message=f"Avvio scansione per '{role_title}' ({len(search_queries)} query attive)"
+    )
+    
+    # Inizializzazione Moduli
+    scraper = LinkedInScraper()
+    evaluator = JobEvaluator(user_profile=candidate_profile, exclude_agencies=exclude_agencies)
+    notifier = WhatsAppNotifier()
     
     # 2. Caricamento Storico Precedente per Deduplicazione a Monte
     import csv
@@ -167,13 +183,15 @@ async def main():
     
     total_queries = len(search_queries)
     for idx, sq in enumerate(search_queries, 1):
-        print(f"\n[LinkedIn {idx}/{total_queries}] Ricerca '{sq['keywords']}' in '{sq['location']}'...", flush=True)
+        step_desc = f"LinkedIn [{idx}/{total_queries}]: '{sq['keywords']}' in '{sq['location']}'"
+        print(f"\n[{step_desc}]...", flush=True)
+        ConfigManager.update_scheduler_state(current_step=step_desc)
         try:
-            jobs = await scraper.run(keywords=sq["keywords"], location=sq["location"], max_results=50, seen_urls=seen_urls)
+            jobs = await scraper.run(keywords=sq["keywords"], location=sq["location"], max_results=max_results_linkedin, seen_urls=seen_urls)
             for j in jobs:
                 all_jobs.append(j)
         except Exception as e:
-            print(f"[-] Errore query LinkedIn '{sq['keywords']}' in '{sq['location']}': {e}. Proseguo con le altre query.", flush=True)
+            print(f"[-] Errore query {step_desc}: {e}. Proseguo.", flush=True)
             
     await scraper.close_browser()
     print(f"\n[+] LinkedIn completato: {len(all_jobs)} annunci unici raccolti finora.", flush=True)
@@ -185,19 +203,31 @@ async def main():
     await indeed_scraper.init_browser()
     
     for idx, sq in enumerate(search_queries, 1):
-        print(f"\n[Indeed {idx}/{total_queries}] Ricerca '{sq['keywords']}' in '{sq['location']}'...", flush=True)
+        step_desc = f"Indeed [{idx}/{total_queries}]: '{sq['keywords']}' in '{sq['location']}'"
+        print(f"\n[{step_desc}]...", flush=True)
+        ConfigManager.update_scheduler_state(current_step=step_desc)
         try:
-            indeed_jobs = await indeed_scraper.run(keywords=sq["keywords"], location=sq["location"], max_results=30, seen_urls=seen_urls)
+            indeed_jobs = await indeed_scraper.run(keywords=sq["keywords"], location=sq["location"], max_results=max_results_indeed, seen_urls=seen_urls)
             for j in indeed_jobs:
                 all_jobs.append(j)
         except Exception as e:
-            print(f"[-] Errore query Indeed '{sq['keywords']}' in '{sq['location']}': {e}. Proseguo con le altre query.", flush=True)
+            print(f"[-] Errore query {step_desc}: {e}. Proseguo.", flush=True)
             
     await indeed_scraper.close_browser()
     print(f"\n[+] Scraping terminato! Totale aggregato (LinkedIn + Indeed): {len(all_jobs)} annunci unici.", flush=True)
                 
     if not all_jobs:
         print("[-] Nessun annuncio trovato o fallimento scraping.")
+        ConfigManager.update_scheduler_state(
+            is_running=False,
+            pid=None,
+            last_run_end=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            last_status="IDLE",
+            current_step="Nessun annuncio trovato",
+            last_message="Scansione completata senza nuovi annunci rilevati",
+            total_scraped=0,
+            total_matches=0
+        )
         return
 
     print(f"\n[*] Fase 2: Inizio valutazione AI di {len(all_jobs)} annunci unici con Gemini 3.8 Flash...\n")
@@ -209,6 +239,7 @@ async def main():
             writer.writeheader()
         
         total_eval_jobs = len(all_jobs)
+        new_matches_count = 0
         print(f"[*] Inizio ciclo di valutazione su {total_eval_jobs} annunci...\n")
         
         for idx, job in enumerate(all_jobs, start=1):
@@ -221,6 +252,8 @@ async def main():
             job_hash = compute_content_hash(job["company"], job["title"], job["description"])
             source = job.get("source", "LinkedIn")
             
+            step_eval_desc = f"Valutazione AI [{idx}/{total_eval_jobs}]: '{job['title'][:25]}' @ '{job['company'][:20]}'"
+            ConfigManager.update_scheduler_state(current_step=step_eval_desc)
             print(f"\n[{idx}/{total_eval_jobs} | {remaining} rimanenti] Analisi: '{job['title']}' @ '{job['company']}' ({source})")
             
             # Controllo 1: Hash SHA-256 esatto (già presente nello storico)
@@ -296,6 +329,7 @@ async def main():
                 recruiters_info = ""
                 # Se è un match, cerchiamo il recruiter e notifichiamo
                 if evaluation.is_match:
+                    new_matches_count += 1
                     print(f"    --> MATCH TROVATO! Avvio Agente per trovare contatti interni a {job['company']}...\n")
                     
                     # 4. Ricerca Contatti
@@ -368,5 +402,31 @@ async def main():
             except Exception as e:
                 print(f"[-] Errore durante il processing di {job['title']}: {e}")
 
+    # Registrazione completamento con successo nello stato persistente
+    ConfigManager.update_scheduler_state(
+        is_running=False,
+        pid=None,
+        last_run_end=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        last_status="SUCCESS",
+        current_step="Scansione completata",
+        last_message=f"Scansione completata: {len(all_jobs)} annunci esaminati, {new_matches_count} nuove opportunità idonee!",
+        total_scraped=len(all_jobs),
+        total_matches=new_matches_count
+    )
+    print(f"\n🎉 [COMPLETATO] Scansione terminata! {new_matches_count} nuovi match su {len(all_jobs)} annunci unici raccolti.\n")
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        print(f"\n❌ [-] Errore imprevisto durante l'esecuzione di AI Job Finder: {e}")
+        from datetime import datetime
+        ConfigManager.update_scheduler_state(
+            is_running=False,
+            pid=None,
+            last_run_end=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            last_status="ERROR",
+            current_step="Errore critico",
+            last_message=f"Errore imprevisto: {str(e)[:250]}"
+        )
+        sys.exit(1)
