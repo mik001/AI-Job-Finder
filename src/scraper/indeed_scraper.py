@@ -147,6 +147,8 @@ class IndeedScraper:
 
                     if "security check" in page_title.lower() or "just a moment" in page_title.lower() or "challenge" in page_title.lower():
                         print(f"[-] Pagina Indeed bloccata da verifica Cloudflare, proseguo.", flush=True)
+                        if self.diagnostics:
+                            await self.diagnostics.capture_screenshot(page, f"indeed_challenge_{keywords[:15]}")
                         break
 
                 if self.diagnostics and start == 0:

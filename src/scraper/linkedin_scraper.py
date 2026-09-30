@@ -262,9 +262,14 @@ class LinkedInScraper:
             soup = BeautifulSoup(html, "html.parser")
             
             # Cerca le card degli annunci con selettori CSS moderni ed esaustivi
-            job_cards = soup.select(".job-card-container, .jobs-search-results__list-item, .base-card, [data-occludable-job-id]")
-            if not job_cards:
-                job_cards = soup.find_all("div", class_=lambda x: x and "job-card" in x)
+            raw_cards = soup.select(".job-card-container, .jobs-search-results__list-item, .base-card")
+            if not raw_cards:
+                raw_cards = soup.find_all("div", class_=lambda x: x and "job-card" in x)
+            
+            # Filtra solo i contenitori più esterni per evitare il doppio conteggio
+            # padre-figlio (es. <li class="jobs-search-results__list-item"> che contiene <div class="job-card-container">)
+            raw_set = set(raw_cards)
+            job_cards = [c for c in raw_cards if not any(p in raw_set for p in c.parents)]
             
             if not job_cards:
                 break # Nessun annuncio in questa pagina, abbiamo finito
